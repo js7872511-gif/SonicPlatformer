@@ -49,7 +49,7 @@ std::string frameName(int frame, bool superForm) {
 
 CCTexture2D* frameTexture(int frame, bool superForm) {
     auto name = frameName(frame, superForm);
-    return CCTextureCache::sharedTextureCache()->addImage(name.c_str());
+    return CCTextureCache::sharedTextureCache()->addImage(name.c_str(), false);
 }
 
 void applyFrame(CCSprite* sprite, int frame, bool superForm) {
