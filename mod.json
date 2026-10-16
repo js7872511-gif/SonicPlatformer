@@ -7,11 +7,11 @@
   "name": "Sonic Platformer",
   "version": "v0.2.0",
   "developer": "ChatGPT + Joshua",
-  "description": "Animated Sonic overlay with a mobile Super Sonic transformation button. Designed to coexist with QOLMod Force Platformer.",
+  "description": "Sonic and Super Sonic transformation overlay for Geometry Dash platformer controls. Designed to coexist with QOLMod Force Platformer.",
   "resources": {
     "sprites": [
-      "resources/sonic/*.png",
-      "resources/ui/*.png"
+      "resources/sonic/sonic_idle.png",
+      "resources/sonic/super_idle.png"
     ]
   }
 }
