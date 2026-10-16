@@ -1,12 +1,5 @@
 # Sonic Platformer
 
-Geode mod for Geometry Dash 2.2081 on Android64.
+Android64 Geode mod for Geometry Dash 2.2081.
 
-Current version: **v0.4.0**
-
-Features include HD Sonic/Super Sonic visuals, platformer controls compatibility, a spin jump, a Chaos Emerald transformation cutscene, Super Sonic hidden-ship flight, invincibility, speed boost, glow, ring effects, and trails.
-
-Recommended setup:
-- QOLMod → Force Platformer: ON
-- QOLMod → All Modes Platformer: OFF
-- Sonic Platformer: ON
+Current target: v0.4.0 with Sonic/Super Sonic, spin jump, Super transformation cutscene, Chaos Emerald orbit, invincibility, hidden ship visuals while using ship physics, and QOLMod Force Platformer compatibility.
