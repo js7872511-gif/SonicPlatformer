@@ -25,7 +25,10 @@ public class ZipOverlayBuilderTest {
         File base=temp.newFile("base.apk"), mod=temp.newFile("m.sreduxmod"), out=temp.newFile("out.apk");
         Map<String,byte[]> baseEntries=new LinkedHashMap<>();
         baseEntries.put("AndroidManifest.xml", ("pre"+oldPkg+"post").getBytes(StandardCharsets.UTF_16LE));
-        baseEntries.put("resources.arsc", ("r"+oldPkg+"r").getBytes(StandardCharsets.UTF_16LE));
+        ByteArrayOutputStream res = new ByteArrayOutputStream();
+        res.write(("r"+oldPkg+"r").getBytes(StandardCharsets.UTF_16LE));
+        res.write("Sonic Redux".getBytes(StandardCharsets.UTF_8));
+        baseEntries.put("resources.arsc", res.toByteArray());
         baseEntries.put("assets/demo.txt", "old".getBytes(StandardCharsets.UTF_8));
         baseEntries.put("lib/arm64-v8a/libunity.so", new byte[]{1});
         baseEntries.put("lib/armeabi-v7a/libunity.so", new byte[]{2});
@@ -43,6 +46,8 @@ public class ZipOverlayBuilderTest {
             assertNull(z.getEntry("META-INF/CERT.SF"));
             String axml=new String(z.getInputStream(z.getEntry("AndroidManifest.xml")).readAllBytes(),StandardCharsets.UTF_16LE);
             assertTrue(axml.contains(newPkg)); assertFalse(axml.contains(oldPkg));
+            byte[] patchedRes=z.getInputStream(z.getEntry("resources.arsc")).readAllBytes();
+            assertTrue(new String(patchedRes, StandardCharsets.ISO_8859_1).contains("SonicReborn"));
             assertNotNull(z.getEntry("lib/arm64-v8a/libunity.so"));
             assertNotNull(z.getEntry("lib/armeabi-v7a/libunity.so"));
         }
