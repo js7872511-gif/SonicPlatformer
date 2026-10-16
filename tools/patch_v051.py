@@ -3,6 +3,14 @@ from pathlib import Path
 p = Path("src/main.cpp")
 s = p.read_text()
 
+# We add a PlayerObject modifier for double-jump input.
+if "#include <Geode/modify/PlayerObject.hpp>" not in s:
+    s = s.replace(
+        "#include <Geode/modify/PlayLayer.hpp>",
+        "#include <Geode/modify/PlayLayer.hpp>\n#include <Geode/modify/PlayerObject.hpp>",
+        1,
+    )
+
 # Scale the concept art down from v0.5 while keeping it clearly larger than the old prototype.
 s = s.replace("constexpr float H = 96.f;", "constexpr float H = 72.f;")
 s = s.replace("constexpr float YOFF = 14.f;", "constexpr float YOFF = 10.f;")
@@ -32,8 +40,8 @@ new_super_start = """        if(on&&!m_fields->super){
 assert old_super_start in s
 s = s.replace(old_super_start, new_super_start, 1)
 
-# Add one mid-air jump for the player. PlayerObject::pushButton is used so this works with
-# mobile taps and QOLMod's platformer controls without needing a separate on-screen button.
+# Add one mid-air jump. Hooking PlayerObject::pushButton makes this work with mobile taps
+# and QOLMod's platformer controls without adding another on-screen button.
 double_jump = r'''
 
 class $modify(SonicDoubleJumpPlayer, PlayerObject) {
