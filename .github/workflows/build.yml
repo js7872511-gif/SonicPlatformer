@@ -14,11 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Generate clean HD assets
+      - name: Generate packaging-safe base assets
         run: |
           python3 -m pip install --quiet pillow
           python3 tools/generate_assets.py
           file resources/sonic/*.png
+
+      - name: Apply v0.5 animation runtime
+        run: python3 tools/patch_v05.py
 
       - name: Build the mod
         id: build
@@ -29,5 +32,5 @@ jobs:
       - name: Upload .geode artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SonicPlatformer-Android64
+          name: SonicPlatformer-v0.5.0-Android64
           path: ${{ steps.build.outputs.build-output }}
