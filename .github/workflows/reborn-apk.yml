@@ -1,0 +1,37 @@
+name: Build Sonic Redux Re-born APK
+on:
+  push:
+    branches: [reborn-apk-build]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reborn-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Unit tests
+        run: gradle testDebugUnitTest --stacktrace
+      - name: Generate Re-born signing material
+        run: |
+          mkdir -p app/src/main/res/raw
+          openssl genrsa -out /tmp/reborn.pem 2048
+          openssl pkcs8 -topk8 -nocrypt -in /tmp/reborn.pem -outform DER -out app/src/main/res/raw/reborn_key.pk8
+          openssl req -new -x509 -key /tmp/reborn.pem -outform DER -out app/src/main/res/raw/reborn_cert.der -days 3650 -subj '/CN=Sonic Redux Re-born/O=Local Mod Build/'
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+      - name: Package artifact
+        run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.1.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sonic-Redux-Re-born-v0.1
+          path: reborn-android/Sonic_Redux_Re-born_v0.1.apk
