@@ -26,6 +26,9 @@ jobs:
       - name: Apply v0.5.1 gameplay fixes
         run: python3 tools/patch_v051.py
 
+      - name: Apply v0.5.2 ground fixes
+        run: python3 tools/patch_v052.py
+
       - name: Build the mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -35,5 +38,5 @@ jobs:
       - name: Upload .geode artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SonicPlatformer-v0.5.1-Android64
+          name: SonicPlatformer-v0.5.2-Android64
           path: ${{ steps.build.outputs.build-output }}
