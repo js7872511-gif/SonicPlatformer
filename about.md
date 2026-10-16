@@ -1,14 +1,11 @@
-# Sonic Platformer
+# Sonic Platformer v0.4.0
 
-Turns the gameplay avatar into an animated Sonic overlay and adds a mobile **SUPER** button.
+A mobile-focused Sonic transformation mod for Geometry Dash 2.2081 + Geode.
 
-## v0.2 features
-- Animated Sonic idle / run / jump / fall / land frames
-- Super Sonic transformation
-- Gold aura and transformation pulse
-- Small capped Super movement boost
-- Mobile SUPER / NORMAL toggle button
-- Does not create or replace platformer controls
-- Designed to coexist with **QOLMod → Force Platformer**
-
-Target: Geometry Dash 2.2081, Geode 5.11+, Android 64-bit.
+## Highlights
+- HD-polished Sonic and Super Sonic visuals with layered shadow, rim light, glow and afterimage trails.
+- Spin-jump visual while Sonic is airborne.
+- Full Super transformation cutscene: dialogue, seven Chaos Emeralds, orbit sequence, flash, ring burst and aura.
+- Super Sonic uses ship flight physics while the native ship graphic remains hidden.
+- Super Sonic ignores normal hazard deaths while transformed.
+- Keeps QOLMod / Force Platformer left-right controls untouched.

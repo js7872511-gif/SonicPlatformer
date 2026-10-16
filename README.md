@@ -1,20 +1,12 @@
-# Sonic Platformer (Geode)
+# Sonic Platformer
 
-A Geometry Dash 2.2081 Android64 Geode mod that replaces the visible cube with Sonic while leaving the game's real player physics and QOLMod's Force Platformer controls intact.
+Geode mod for Geometry Dash 2.2081 on Android64.
 
-## First Android test build
-- Sonic replaces the visible player
-- SUPER / NORMAL mobile button
-- Super Sonic transformation
-- Small capped Super speed boost
-- Does not create or replace the left/right platformer controls
-- Designed for QOLMod → Force Platformer
+Current version: **v0.4.0**
 
-## Target
-- Geometry Dash 2.2081
-- Geode 5.11.x
-- Android64 / arm64-v8a
+Features include HD Sonic/Super Sonic visuals, platformer controls compatibility, a spin jump, a Chaos Emerald transformation cutscene, Super Sonic hidden-ship flight, invincibility, speed boost, glow, ring effects, and trails.
 
-## Build
-
-GitHub Actions automatically builds the Android64 `.geode` package on pushes to `main`.
+Recommended setup:
+- QOLMod → Force Platformer: ON
+- QOLMod → All Modes Platformer: OFF
+- Sonic Platformer: ON

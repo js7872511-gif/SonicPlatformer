@@ -1,13 +1,13 @@
+# v0.4.0
+- Rebuilt the visual system around higher-resolution polished Sonic textures.
+- Added a real spin-jump ball visual.
+- Added the Super Sonic cutscene: “I guess it's time to go super!”, seven Chaos Emeralds, orbit, transformation flash and ring burst.
+- Added layered shadow, aura, glow and cleaner afterimage trails.
+- Super Sonic now activates hidden ship-flight physics.
+- Super Sonic now suppresses normal hazard death while transformed.
+- Added a custom mod logo.
+- Kept Force Platformer / QOLMod compatibility.
+
 # v0.3.0
-- Rebuilt Sonic as a full-size player replacement instead of a tiny overlay.
-- Added normal and Super Sonic animation states: idle, run, jump, fall, and land.
-- Added blue/gold aura trails and a transformation pulse.
-- Replaced the broken checkerboard button with a Geometry Dash gold SUPER button.
-- Re-hides the native cube every frame for better QOLMod Force Platformer compatibility.
-- Super Sonic gets extra platformer acceleration and can revert with the same button.
-
-# v0.2.0
-- First Android64 prototype.
-
-# v0.1.0
-- Initial prototype.
+- Full-size Sonic/Super Sonic replacement.
+- Added SUPER button, speed boost, trails and initial transformation effect.

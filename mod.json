@@ -5,13 +5,17 @@
   },
   "id": "chatgpt.sonic-platformer",
   "name": "Sonic Platformer",
-  "version": "v0.3.0",
+  "version": "v0.4.0",
   "developer": "ChatGPT + Joshua",
-  "description": "Full-size animated Sonic and Super Sonic replacement for Geometry Dash platformer controls. Includes run/jump/fall/land animation, glow trails, a gold SUPER button, transformation effects, and QOLMod Force Platformer compatibility.",
+  "description": "High-quality Sonic platformer replacement with spin-jump, Super Sonic cutscene, seven Chaos Emeralds, ship-flight physics with no ship visible, Super invincibility, HD shading, aura, trails, ring effects, and QOLMod Force Platformer compatibility.",
   "resources": {
     "sprites": [
       "resources/sonic/sonic_idle.png",
-      "resources/sonic/super_idle.png"
+      "resources/sonic/super_idle.png",
+      "resources/sonic/sonic_spin.png",
+      "resources/sonic/super_spin.png",
+      "resources/sonic/emerald.png",
+      "resources/sonic/ring.png"
     ]
   }
 }
