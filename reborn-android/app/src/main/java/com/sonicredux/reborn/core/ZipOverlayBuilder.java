@@ -50,6 +50,8 @@ public final class ZipOverlayBuilder {
 
         byte[] oldUtf16 = oldPackage.getBytes(StandardCharsets.UTF_16LE);
         byte[] newUtf16 = newPackage.getBytes(StandardCharsets.UTF_16LE);
+        byte[] oldLabel = "Sonic Redux".getBytes(StandardCharsets.UTF_8);
+        byte[] newLabel = "SonicReborn".getBytes(StandardCharsets.UTF_8);
 
         try (ZipFile in = new ZipFile(baseline); ZipOutputStream out = new ZipOutputStream(new FileOutputStream(output))) {
             Enumeration<? extends ZipEntry> entries = in.entries();
@@ -65,6 +67,9 @@ public final class ZipOverlayBuilder {
                 byte[] bytes = readAll(in.getInputStream(e));
                 if (name.equals("AndroidManifest.xml") || name.equals("resources.arsc")) {
                     bytes = BinaryPatcher.replaceSameLength(bytes, oldUtf16, newUtf16, true);
+                }
+                if (name.equals("resources.arsc")) {
+                    bytes = BinaryPatcher.replaceSameLength(bytes, oldLabel, newLabel, false);
                 }
                 out.putNextEntry(copy);
                 out.write(bytes);
