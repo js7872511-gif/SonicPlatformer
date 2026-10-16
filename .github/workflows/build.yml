@@ -14,6 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Generate clean HD assets
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 tools/generate_assets.py
+          file resources/sonic/*.png
+
       - name: Build the mod
         id: build
         uses: geode-sdk/build-geode-mod@main
