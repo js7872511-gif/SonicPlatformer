@@ -25,6 +25,10 @@ public final class ZipOverlayBuilder {
         Payload(ModManifest manifest, Map<String, byte[]> files) { this.manifest = manifest; this.files = files; }
     }
 
+    public static ModManifest validateMod(File modFile) throws Exception {
+        return readPayload(modFile).manifest;
+    }
+
     public static void build(File baseline, List<File> modFiles, File output, String oldPackage, String newPackage) throws Exception {
         if (oldPackage.length() != newPackage.length()) {
             throw new IllegalArgumentException("package IDs must have equal length for safe binary patching");
