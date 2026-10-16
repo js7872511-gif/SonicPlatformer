@@ -5,9 +5,9 @@
   },
   "id": "chatgpt.sonic-platformer",
   "name": "Sonic Platformer",
-  "version": "v0.4.0",
+  "version": "v0.5.2",
   "developer": "ChatGPT + Joshua",
-  "description": "High-quality Sonic platformer replacement with spin-jump, Super Sonic cutscene, seven Chaos Emeralds, ship-flight physics with no ship visible, Super invincibility, HD shading, aura, trails, ring effects, and QOLMod Force Platformer compatibility.",
+  "description": "Sonic platformer replacement with concept sprites, spin-jump, double jump, Super Sonic cutscene, Chaos Emeralds, invincibility, HD effects, hidden native vehicles, QOLMod Force Platformer support, and a built-in Green Hills Zone bonus level.",
   "resources": {
     "sprites": [
       "resources/sonic/sonic_idle.png",
