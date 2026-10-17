@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = 'SonicReduxReborn'
 include ':app'
+include ':runtime-payload'
