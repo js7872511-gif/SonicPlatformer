@@ -27,6 +27,15 @@ jobs:
           openssl req -new -x509 -key /tmp/reborn.pem -outform DER -out app/src/main/res/raw/reborn_cert.der -days 3650 -subj '/CN=Sonic Redux Re-born/O=Local Mod Build/'
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
+      - name: Build runtime payload
+        run: |
+          gradle :runtime-payload:assembleRelease --stacktrace
+          AAR=runtime-payload/build/outputs/aar/runtime-payload-release.aar
+          unzip -l "$AAR" | tee /tmp/runtime-aar.txt
+          grep -F 'jni/arm64-v8a/libmain.so' /tmp/runtime-aar.txt
+          grep -F 'jni/arm64-v8a/libreborn.so' /tmp/runtime-aar.txt
+          grep -F 'jni/armeabi-v7a/libmain.so' /tmp/runtime-aar.txt
+          grep -F 'jni/armeabi-v7a/libreborn.so' /tmp/runtime-aar.txt
       - name: Build manager APK
         run: gradle assembleDebug --stacktrace
       - name: Static APK checks
