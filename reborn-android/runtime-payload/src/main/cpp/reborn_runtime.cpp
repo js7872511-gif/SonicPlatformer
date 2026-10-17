@@ -1,4 +1,5 @@
 #include "reborn_runtime.h"
+#include "super_visual_bridge.h"
 
 #include <android/log.h>
 #include <atomic>
@@ -20,6 +21,32 @@ void clearException(JNIEnv* env, const char* context) {
         env->ExceptionClear();
         __android_log_print(ANDROID_LOG_ERROR, TAG, "JNI exception while %s", context);
     }
+}
+
+jboolean nativeSetSuperVisualRequested(JNIEnv*, jclass, jboolean enabled) {
+    reborn::request_super_visual(enabled == JNI_TRUE);
+    return reborn::super_visual_bridge_ready() ? JNI_TRUE : JNI_FALSE;
+}
+
+jint nativeSuperVisualState(JNIEnv*, jclass) {
+    return static_cast<jint>(reborn::super_visual_state());
+}
+
+bool registerOverlayNatives(JNIEnv* env, jclass overlayClass) {
+    JNINativeMethod methods[] = {
+            {const_cast<char*>("nativeSetSuperVisualRequested"),
+             const_cast<char*>("(Z)Z"),
+             reinterpret_cast<void*>(nativeSetSuperVisualRequested)},
+            {const_cast<char*>("nativeSuperVisualState"),
+             const_cast<char*>("()I"),
+             reinterpret_cast<void*>(nativeSuperVisualState)},
+    };
+    if (env->RegisterNatives(overlayClass, methods,
+                             static_cast<jint>(sizeof(methods) / sizeof(methods[0]))) != JNI_OK) {
+        clearException(env, "registering Re-born native visual methods");
+        return false;
+    }
+    return true;
 }
 
 void initLoop() {
@@ -52,6 +79,17 @@ void initLoop() {
     __android_log_print(ANDROID_LOG_WARN, TAG, "Unity activity was not ready before runtime timeout");
     gVm->DetachCurrentThread();
 }
+
+void bridgeLoop() {
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        if (reborn::install_super_visual_bridge()) {
+            __android_log_print(ANDROID_LOG_INFO, TAG, "Super visual bridge ready");
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    __android_log_print(ANDROID_LOG_WARN, TAG, "Super visual bridge was not ready before timeout");
+}
 }
 
 extern "C" int reborn_runtime_start(JavaVM* vm) {
@@ -83,34 +121,20 @@ extern "C" int reborn_runtime_start(JavaVM* vm) {
         clearException(env, "resolving runtime Java bridge");
         return -5;
     }
+    if (!registerOverlayNatives(env, overlayLocal)) {
+        env->DeleteLocalRef(unityLocal);
+        env->DeleteLocalRef(overlayLocal);
+        return -6;
+    }
 
     gUnityPlayerClass = reinterpret_cast<jclass>(env->NewGlobalRef(unityLocal));
     gOverlayClass = reinterpret_cast<jclass>(env->NewGlobalRef(overlayLocal));
     env->DeleteLocalRef(unityLocal);
     env->DeleteLocalRef(overlayLocal);
-    if (!gUnityPlayerClass || !gOverlayClass) return -6;
+    if (!gUnityPlayerClass || !gOverlayClass) return -7;
 
     gVm = vm;
     std::thread(initLoop).detach();
+    std::thread(bridgeLoop).detach();
     return 0;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornOverlay_nativeToggleSuper(JNIEnv*, jclass) {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "GO SUPER pressed (runtime bridge pending)");
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornOverlay_nativeToggleFlight(JNIEnv*, jclass) {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "FLIGHT pressed (runtime bridge pending)");
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornOverlay_nativeSuperBoost(JNIEnv*, jclass) {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "SUPER BOOST pressed (runtime bridge pending)");
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornOverlay_nativeChaosBurst(JNIEnv*, jclass) {
-    __android_log_print(ANDROID_LOG_INFO, TAG, "CHAOS BURST pressed (runtime bridge pending)");
 }
