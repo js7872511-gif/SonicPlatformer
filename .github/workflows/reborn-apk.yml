@@ -4,6 +4,10 @@ on:
     branches: [reborn-apk-build, reborn-v0.2-runtime]
   workflow_dispatch:
 
+concurrency:
+  group: reborn-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -48,6 +52,12 @@ jobs:
           "$BT/apksigner" verify --verbose "$APK" | tee /tmp/apksig.txt
           grep -F "Verified using v1 scheme (JAR signing): true" /tmp/apksig.txt
           grep -F "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksig.txt
+          unzip -l "$APK" | tee /tmp/manager-apk.txt
+          grep -F 'assets/reborn-runtime/classes.dex' /tmp/manager-apk.txt
+          grep -F 'assets/reborn-runtime/arm64-v8a/libmain.so' /tmp/manager-apk.txt
+          grep -F 'assets/reborn-runtime/arm64-v8a/libreborn.so' /tmp/manager-apk.txt
+          grep -F 'assets/reborn-runtime/armeabi-v7a/libmain.so' /tmp/manager-apk.txt
+          grep -F 'assets/reborn-runtime/armeabi-v7a/libreborn.so' /tmp/manager-apk.txt
       - name: Package artifact
         run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.1.apk
       - uses: actions/upload-artifact@v4
