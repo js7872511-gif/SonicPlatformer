@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -23,6 +25,17 @@ public final class ZipOverlayBuilder {
         final ModManifest manifest;
         final Map<String, byte[]> files;
         Payload(ModManifest manifest, Map<String, byte[]> files) { this.manifest = manifest; this.files = files; }
+    }
+
+    private static final class CountingOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private long count;
+        CountingOutputStream(OutputStream delegate) { this.delegate = delegate; }
+        long count() { return count; }
+        @Override public void write(int b) throws java.io.IOException { delegate.write(b); count++; }
+        @Override public void write(byte[] b, int off, int len) throws java.io.IOException { delegate.write(b, off, len); count += len; }
+        @Override public void flush() throws java.io.IOException { delegate.flush(); }
+        @Override public void close() throws java.io.IOException { delegate.close(); }
     }
 
     public static ModManifest validateMod(File modFile) throws Exception {
@@ -53,16 +66,19 @@ public final class ZipOverlayBuilder {
         byte[] oldLabel = "Sonic Redux".getBytes(StandardCharsets.UTF_8);
         byte[] newLabel = "SonicReborn".getBytes(StandardCharsets.UTF_8);
 
-        try (ZipFile in = new ZipFile(baseline); ZipOutputStream out = new ZipOutputStream(new FileOutputStream(output))) {
+        try (ZipFile in = new ZipFile(baseline);
+             FileOutputStream fos = new FileOutputStream(output);
+             CountingOutputStream counting = new CountingOutputStream(fos);
+             ZipOutputStream out = new ZipOutputStream(counting)) {
             Enumeration<? extends ZipEntry> entries = in.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry e = entries.nextElement();
                 String name = e.getName();
                 if (isSignatureEntry(name) || replacements.containsKey(name)) continue;
-                ZipEntry copy = new ZipEntry(name);
-                copy.setTime(e.getTime());
                 if (e.isDirectory()) {
-                    out.putNextEntry(copy); out.closeEntry(); continue;
+                    ZipEntry dir = new ZipEntry(name);
+                    out.putNextEntry(dir); out.closeEntry();
+                    continue;
                 }
                 byte[] bytes = readAll(in.getInputStream(e));
                 if (name.equals("AndroidManifest.xml") || name.equals("resources.arsc")) {
@@ -71,18 +87,60 @@ public final class ZipOverlayBuilder {
                 if (name.equals("resources.arsc")) {
                     bytes = BinaryPatcher.replaceSameLength(bytes, oldLabel, newLabel, false);
                 }
-                out.putNextEntry(copy);
-                out.write(bytes);
-                out.closeEntry();
+                writeEntry(out, counting, name, bytes, e.getMethod());
             }
             for (Map.Entry<String, byte[]> r : replacements.entrySet()) {
-                ZipEntry e = new ZipEntry(r.getKey());
-                out.putNextEntry(e);
-                out.write(r.getValue());
-                out.closeEntry();
+                ZipEntry original = in.getEntry(r.getKey());
+                int method = original == null ? ZipEntry.DEFLATED : original.getMethod();
+                writeEntry(out, counting, r.getKey(), r.getValue(), method);
             }
         }
         verifyCoreEntries(output);
+    }
+
+    private static void writeEntry(ZipOutputStream out, CountingOutputStream counting, String name, byte[] bytes, int method) throws Exception {
+        ZipEntry e = new ZipEntry(name);
+        // Android 11+ rejects target-R+ APKs when resources.arsc is compressed.
+        if (name.equals("resources.arsc")) method = ZipEntry.STORED;
+        if (method == ZipEntry.STORED) {
+            CRC32 crc = new CRC32();
+            crc.update(bytes);
+            e.setMethod(ZipEntry.STORED);
+            e.setSize(bytes.length);
+            e.setCompressedSize(bytes.length);
+            e.setCrc(crc.getValue());
+            int alignment = requiredAlignment(name);
+            if (alignment > 1) {
+                byte[] extra = alignmentExtra(counting.count(), name, alignment);
+                if (extra != null) e.setExtra(extra);
+            }
+        } else {
+            e.setMethod(ZipEntry.DEFLATED);
+        }
+        out.putNextEntry(e);
+        out.write(bytes);
+        out.closeEntry();
+    }
+
+    private static int requiredAlignment(String name) {
+        if (name.equals("resources.arsc")) return 4;
+        // If a future Redux build stores native libraries uncompressed, page-align them too.
+        if (name.startsWith("lib/") && name.endsWith(".so")) return 16384;
+        return 1;
+    }
+
+    private static byte[] alignmentExtra(long currentOffset, String name, int alignment) {
+        int nameLength = name.getBytes(StandardCharsets.UTF_8).length;
+        long baseDataOffset = currentOffset + 30L + nameLength;
+        if ((baseDataOffset % alignment) == 0) return null;
+        int padData = (int) ((alignment - ((baseDataOffset + 4L) % alignment)) % alignment);
+        byte[] extra = new byte[4 + padData];
+        // Valid, ignorable private ZIP extra field: header ID 0xCAFE + payload length.
+        extra[0] = (byte) 0xFE;
+        extra[1] = (byte) 0xCA;
+        extra[2] = (byte) (padData & 0xff);
+        extra[3] = (byte) ((padData >>> 8) & 0xff);
+        return extra;
     }
 
     private static Payload readPayload(File modFile) throws Exception {
@@ -129,6 +187,9 @@ public final class ZipOverlayBuilder {
                     "lib/arm64-v8a/libunity.so", "lib/armeabi-v7a/libunity.so"
             };
             for (String p : required) if (z.getEntry(p) == null) throw new IllegalStateException("rebuilt APK lost required entry: " + p);
+            if (z.getEntry("resources.arsc").getMethod() != ZipEntry.STORED) {
+                throw new IllegalStateException("resources.arsc must be stored uncompressed");
+            }
         }
     }
 }
