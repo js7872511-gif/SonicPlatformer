@@ -40,11 +40,19 @@ jobs:
           grep -F 'jni/arm64-v8a/libreborn.so' /tmp/runtime-aar.txt
           grep -F 'jni/armeabi-v7a/libmain.so' /tmp/runtime-aar.txt
           grep -F 'jni/armeabi-v7a/libreborn.so' /tmp/runtime-aar.txt
-          strings <(unzip -p "$AAR" jni/arm64-v8a/libreborn.so) > /tmp/reborn-native-strings.txt
+          unzip -p "$AAR" classes.jar > /tmp/runtime-classes.jar
+          unzip -l /tmp/runtime-classes.jar | grep -F 'com/sonicredux/reborn/runtimeui/RebornVisualBridge.class'
+          unzip -p "$AAR" jni/arm64-v8a/libreborn.so > /tmp/libreborn.so
+          strings /tmp/libreborn.so > /tmp/reborn-native-strings.txt
           grep -F 'on-demand Super visual bridge ready' /tmp/reborn-native-strings.txt
           grep -F 'gold override applied to %zu materials' /tmp/reborn-native-strings.txt
+          grep -F 'IL2CPP visual bridge deferred until GO SUPER' /tmp/reborn-native-strings.txt
           if grep -Fq 'KorokScript.OnInvincible hook installed' /tmp/reborn-native-strings.txt; then
             echo 'Unsafe startup MethodInfo hook is still present' >&2
+            exit 1
+          fi
+          if grep -Fq 'requested real Super renderer' /tmp/reborn-native-strings.txt; then
+            echo 'Unsafe background state-sync bridge is still present' >&2
             exit 1
           fi
       - name: Build manager APK
@@ -55,7 +63,7 @@ jobs:
           BT=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
           "$BT/aapt" dump badging "$APK" | tee /tmp/badging.txt
           grep -F "package: name='com.sonicredux.reborn'" /tmp/badging.txt
-          grep -F "versionName='0.2.1-beta2'" /tmp/badging.txt
+          grep -F "versionName='0.2.2-beta3'" /tmp/badging.txt
           grep -F "application-label:'Sonic Redux Re-born'" /tmp/badging.txt
           "$BT/apksigner" verify --verbose "$APK" | tee /tmp/apksig.txt
           grep -F "Verified using v1 scheme (JAR signing): true" /tmp/apksig.txt
@@ -66,9 +74,11 @@ jobs:
           grep -F 'assets/reborn-runtime/arm64-v8a/libreborn.so' /tmp/manager-apk.txt
           grep -F 'assets/reborn-runtime/armeabi-v7a/libmain.so' /tmp/manager-apk.txt
           grep -F 'assets/reborn-runtime/armeabi-v7a/libreborn.so' /tmp/manager-apk.txt
+          unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'RebornVisualBridge'
+          unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'invokeOnMainThread'
       - name: Package artifact
-        run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.2_Beta2.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.2_Beta3.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Sonic-Redux-Re-born-v0.2-Beta2
-          path: reborn-android/Sonic_Redux_Re-born_v0.2_Beta2.apk
+          name: Sonic-Redux-Re-born-v0.2-Beta3
+          path: reborn-android/Sonic_Redux_Re-born_v0.2_Beta3.apk
