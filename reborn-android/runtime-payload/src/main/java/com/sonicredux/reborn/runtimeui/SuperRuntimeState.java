@@ -19,6 +19,11 @@ public final class SuperRuntimeState {
         return mode == Mode.TRANSFORMING_IN || mode == Mode.TRANSFORMING_OUT;
     }
 
+    /** True while the real Sonic renderer should use the Super visual. */
+    public synchronized boolean wantsSuperVisual() {
+        return mode == Mode.TRANSFORMING_IN || mode == Mode.SUPER;
+    }
+
     public synchronized boolean isFlightEnabled() {
         return flightEnabled;
     }
