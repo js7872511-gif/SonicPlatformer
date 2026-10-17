@@ -23,30 +23,27 @@ void clearException(JNIEnv* env, const char* context) {
     }
 }
 
-jboolean nativeSetSuperVisualRequested(JNIEnv*, jclass, jboolean enabled) {
-    reborn::request_super_visual(enabled == JNI_TRUE);
-    return reborn::super_visual_bridge_ready() ? JNI_TRUE : JNI_FALSE;
+void postStatus(JNIEnv* env, const char* text) {
+    if (!env || !gOverlayClass || !gStatusMethod || !text) return;
+    jstring value = env->NewStringUTF(text);
+    if (!value) return;
+    env->CallStaticVoidMethod(gOverlayClass, gStatusMethod, value);
+    env->DeleteLocalRef(value);
+    clearException(env, "posting Re-born status");
 }
 
-jint nativeSuperVisualState(JNIEnv*, jclass) {
-    return static_cast<jint>(reborn::super_visual_state());
-}
-
-bool registerOverlayNatives(JNIEnv* env, jclass overlayClass) {
-    JNINativeMethod methods[] = {
-            {const_cast<char*>("nativeSetSuperVisualRequested"),
-             const_cast<char*>("(Z)Z"),
-             reinterpret_cast<void*>(nativeSetSuperVisualRequested)},
-            {const_cast<char*>("nativeSuperVisualState"),
-             const_cast<char*>("()I"),
-             reinterpret_cast<void*>(nativeSuperVisualState)},
-    };
-    if (env->RegisterNatives(overlayClass, methods,
-                             static_cast<jint>(sizeof(methods) / sizeof(methods[0]))) != JNI_OK) {
-        clearException(env, "registering Re-born native visual methods");
-        return false;
+void sendUnityMessage(JNIEnv* env, jmethodID unitySendMessage, const char* methodName) {
+    if (!env || !unitySendMessage || !methodName) return;
+    jstring objectName = env->NewStringUTF("Sonic");
+    jstring method = env->NewStringUTF(methodName);
+    jstring argument = env->NewStringUTF("");
+    if (objectName && method && argument) {
+        env->CallStaticVoidMethod(gUnityPlayerClass, unitySendMessage, objectName, method, argument);
+        clearException(env, "dispatching UnitySendMessage");
     }
-    return true;
+    if (objectName) env->DeleteLocalRef(objectName);
+    if (method) env->DeleteLocalRef(method);
+    if (argument) env->DeleteLocalRef(argument);
 }
 
 void initLoop() {
@@ -60,13 +57,7 @@ void initLoop() {
         } else if (activity) {
             env->CallStaticVoidMethod(gOverlayClass, gInstallMethod, activity);
             clearException(env, "installing Re-born overlay");
-
-            jstring online = env->NewStringUTF("REBORN RUNTIME ONLINE");
-            if (online) {
-                env->CallStaticVoidMethod(gOverlayClass, gStatusMethod, online);
-                env->DeleteLocalRef(online);
-                clearException(env, "posting runtime status");
-            }
+            postStatus(env, "REBORN RUNTIME ONLINE");
             env->DeleteLocalRef(activity);
             __android_log_print(ANDROID_LOG_INFO, TAG, "Re-born runtime online");
             gVm->DetachCurrentThread();
@@ -89,6 +80,91 @@ void bridgeLoop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     __android_log_print(ANDROID_LOG_WARN, TAG, "Super visual bridge was not ready before timeout");
+}
+
+void stateSyncLoop() {
+    JNIEnv* env = nullptr;
+    if (!gVm || gVm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) return;
+
+    jfieldID stateField = env->GetStaticFieldID(
+            gOverlayClass, "superState", "Lcom/sonicredux/reborn/runtimeui/SuperRuntimeState;");
+    if (!stateField || env->ExceptionCheck()) {
+        clearException(env, "resolving SuperRuntimeState field");
+        gVm->DetachCurrentThread();
+        return;
+    }
+
+    jobject state = env->GetStaticObjectField(gOverlayClass, stateField);
+    if (!state || env->ExceptionCheck()) {
+        clearException(env, "reading SuperRuntimeState");
+        if (state) env->DeleteLocalRef(state);
+        gVm->DetachCurrentThread();
+        return;
+    }
+
+    jclass stateClass = env->GetObjectClass(state);
+    jmethodID isSuper = stateClass
+            ? env->GetMethodID(stateClass, "isSuper", "()Z") : nullptr;
+    jmethodID wantsSuperVisual = stateClass
+            ? env->GetMethodID(stateClass, "wantsSuperVisual", "()Z") : nullptr;
+    jmethodID unitySendMessage = env->GetStaticMethodID(
+            gUnityPlayerClass, "UnitySendMessage",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    if (!stateClass || !isSuper || !wantsSuperVisual || !unitySendMessage || env->ExceptionCheck()) {
+        clearException(env, "resolving Super state synchronization methods");
+        if (stateClass) env->DeleteLocalRef(stateClass);
+        env->DeleteLocalRef(state);
+        gVm->DetachCurrentThread();
+        return;
+    }
+
+    bool requested = false;
+    bool sawReadyBridge = false;
+    int lastVisualState = reborn::SUPER_VISUAL_NOT_READY;
+
+    while (gStarted.load()) {
+        const bool bridgeReady = reborn::super_visual_bridge_ready();
+        const bool stableSuper = env->CallBooleanMethod(state, isSuper) == JNI_TRUE;
+        const bool wantsVisual = env->CallBooleanMethod(state, wantsSuperVisual) == JNI_TRUE;
+        if (env->ExceptionCheck()) {
+            clearException(env, "reading Super state");
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            continue;
+        }
+
+        if (bridgeReady) {
+            if (stableSuper && (!requested || !sawReadyBridge)) {
+                reborn::request_super_visual(true);
+                requested = true;
+                sendUnityMessage(env, unitySendMessage, "OnInvincible");
+                __android_log_print(ANDROID_LOG_INFO, TAG, "requested real Super renderer");
+            } else if (!wantsVisual && requested) {
+                reborn::request_super_visual(false);
+                requested = false;
+                sendUnityMessage(env, unitySendMessage, "OnInvincible");
+                __android_log_print(ANDROID_LOG_INFO, TAG, "requested normal Sonic renderer restore");
+            }
+            sawReadyBridge = true;
+        }
+
+        const int visualState = reborn::super_visual_state();
+        if (visualState != lastVisualState) {
+            lastVisualState = visualState;
+            if (visualState == reborn::SUPER_VISUAL_GOLD_APPLIED) {
+                postStatus(env, "SUPER SONIC • GOLD ACTIVE");
+            } else if (visualState == reborn::SUPER_VISUAL_NO_RENDERERS && stableSuper) {
+                postStatus(env, "SUPER VISUAL • SONIC MATERIAL NOT FOUND");
+            } else if (visualState == reborn::SUPER_VISUAL_FAILED && stableSuper) {
+                postStatus(env, "SUPER VISUAL BRIDGE ERROR");
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+
+    env->DeleteLocalRef(stateClass);
+    env->DeleteLocalRef(state);
+    gVm->DetachCurrentThread();
 }
 }
 
@@ -121,20 +197,16 @@ extern "C" int reborn_runtime_start(JavaVM* vm) {
         clearException(env, "resolving runtime Java bridge");
         return -5;
     }
-    if (!registerOverlayNatives(env, overlayLocal)) {
-        env->DeleteLocalRef(unityLocal);
-        env->DeleteLocalRef(overlayLocal);
-        return -6;
-    }
 
     gUnityPlayerClass = reinterpret_cast<jclass>(env->NewGlobalRef(unityLocal));
     gOverlayClass = reinterpret_cast<jclass>(env->NewGlobalRef(overlayLocal));
     env->DeleteLocalRef(unityLocal);
     env->DeleteLocalRef(overlayLocal);
-    if (!gUnityPlayerClass || !gOverlayClass) return -7;
+    if (!gUnityPlayerClass || !gOverlayClass) return -6;
 
     gVm = vm;
     std::thread(initLoop).detach();
     std::thread(bridgeLoop).detach();
+    std::thread(stateSyncLoop).detach();
     return 0;
 }
