@@ -3,14 +3,9 @@
 #include <android/log.h>
 #include <dlfcn.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <string>
-#include <unordered_set>
-#include <vector>
 
 namespace reborn {
 namespace {
@@ -24,26 +19,13 @@ struct Il2CppType;
 struct Il2CppObject;
 struct Il2CppException;
 struct MethodInfo;
+struct FieldInfo;
 
 struct ColorValue {
     float r;
     float g;
     float b;
     float a;
-};
-
-struct Il2CppArrayHeader {
-    void* klass;
-    void* monitor;
-    void* bounds;
-    uintptr_t maxLength;
-};
-
-struct Il2CppStringLayout {
-    void* klass;
-    void* monitor;
-    int32_t length;
-    char16_t chars[1];
 };
 
 struct Api {
@@ -56,26 +38,19 @@ struct Api {
     const MethodInfo* (*class_get_method_from_name)(Il2CppClass*, const char*, int) = nullptr;
     const Il2CppType* (*class_get_type)(Il2CppClass*) = nullptr;
     Il2CppObject* (*type_get_object)(const Il2CppType*) = nullptr;
+    FieldInfo* (*class_get_field_from_name)(Il2CppClass*, const char*) = nullptr;
+    void (*field_get_value)(Il2CppObject*, FieldInfo*, void*) = nullptr;
     Il2CppObject* (*runtime_invoke)(const MethodInfo*, void*, void**, Il2CppException**) = nullptr;
     void* (*object_unbox)(Il2CppObject*) = nullptr;
-    size_t (*array_length)(Il2CppObject*) = nullptr;
     Il2CppObject* (*string_new)(const char*) = nullptr;
     uint32_t (*gchandle_new)(Il2CppObject*, bool) = nullptr;
     Il2CppObject* (*gchandle_get_target)(uint32_t) = nullptr;
     void (*gchandle_free)(uint32_t) = nullptr;
 };
 
-struct MaterialSnapshot {
-    uint32_t materialHandle = 0;
-    uint32_t textureHandle = 0;
+struct TintSnapshot {
+    uint32_t rendererHandle = 0;
     ColorValue color{};
-};
-
-struct MaterialCandidate {
-    Il2CppObject* material = nullptr;
-    Il2CppObject* texture = nullptr;
-    ColorValue color{};
-    std::string identity;
 };
 
 Api gApi;
@@ -83,16 +58,23 @@ std::atomic<bool> gApiLoaded{false};
 std::atomic<bool> gResolved{false};
 std::atomic<int> gVisualState{SUPER_VISUAL_NOT_READY};
 
+const Il2CppImage* gCSharpImage = nullptr;
+Il2CppClass* gKorokClass = nullptr;
+Il2CppClass* gGameObjectClass = nullptr;
+Il2CppClass* gSpriteRendererClass = nullptr;
+
 const MethodInfo* gGameObjectFind = nullptr;
-const MethodInfo* gGameObjectGetComponentsInChildren = nullptr;
-const MethodInfo* gRendererGetMaterials = nullptr;
-const MethodInfo* gMaterialGetColor = nullptr;
-const MethodInfo* gMaterialSetColor = nullptr;
-const MethodInfo* gMaterialGetMainTexture = nullptr;
-const MethodInfo* gMaterialSetMainTexture = nullptr;
-const MethodInfo* gObjectGetName = nullptr;
-Il2CppClass* gRendererClass = nullptr;
-std::vector<MaterialSnapshot> gSnapshots;
+const MethodInfo* gGameObjectGetComponent = nullptr;
+const MethodInfo* gGameObjectGetComponentInChildren = nullptr;
+const MethodInfo* gSpriteRendererGetColor = nullptr;
+const MethodInfo* gSpriteRendererSetColor = nullptr;
+
+FieldInfo* gVisualField = nullptr;
+FieldInfo* gVisualBodyField = nullptr;
+FieldInfo* gVisualSpinField = nullptr;
+
+TintSnapshot gSnapshots[3];
+int gSnapshotCount = 0;
 
 bool loadSymbol(void** out, const char* name) {
     *out = dlsym(gApi.handle, name);
@@ -105,13 +87,8 @@ bool loadSymbol(void** out, const char* name) {
 
 bool loadApi() {
     if (gApiLoaded.load()) return true;
-    if (!gApi.handle) {
-        gApi.handle = dlopen("libil2cpp.so", RTLD_NOW | RTLD_GLOBAL);
-    }
-    if (!gApi.handle) {
-        __android_log_print(ANDROID_LOG_WARN, TAG, "libil2cpp.so unavailable for on-demand visual request");
-        return false;
-    }
+    if (!gApi.handle) gApi.handle = dlopen("libil2cpp.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!gApi.handle) return false;
 
 #define LOAD_API(field, symbol) \
     if (!loadSymbol(reinterpret_cast<void**>(&gApi.field), symbol)) return false
@@ -123,9 +100,10 @@ bool loadApi() {
     LOAD_API(class_get_method_from_name, "il2cpp_class_get_method_from_name");
     LOAD_API(class_get_type, "il2cpp_class_get_type");
     LOAD_API(type_get_object, "il2cpp_type_get_object");
+    LOAD_API(class_get_field_from_name, "il2cpp_class_get_field_from_name");
+    LOAD_API(field_get_value, "il2cpp_field_get_value");
     LOAD_API(runtime_invoke, "il2cpp_runtime_invoke");
     LOAD_API(object_unbox, "il2cpp_object_unbox");
-    LOAD_API(array_length, "il2cpp_array_length");
     LOAD_API(string_new, "il2cpp_string_new");
     LOAD_API(gchandle_new, "il2cpp_gchandle_new");
     LOAD_API(gchandle_get_target, "il2cpp_gchandle_get_target");
@@ -153,60 +131,100 @@ Il2CppObject* invoke(const MethodInfo* method, void* instance, void** args = nul
     Il2CppException* exception = nullptr;
     Il2CppObject* result = gApi.runtime_invoke(method, instance, args, &exception);
     if (exception) {
-        __android_log_print(ANDROID_LOG_WARN, TAG, "managed exception while invoking Unity visual API");
+        __android_log_print(ANDROID_LOG_WARN, TAG, "managed exception in focused Super bridge");
         return nullptr;
     }
     return result;
 }
 
-void** arrayData(Il2CppObject* array) {
-    if (!array) return nullptr;
-    auto* bytes = reinterpret_cast<uint8_t*>(array);
-    return reinterpret_cast<void**>(bytes + sizeof(Il2CppArrayHeader));
-}
+bool resolveBridge() {
+    if (gResolved.load()) return true;
+    if (!loadApi()) return false;
 
-std::string managedString(Il2CppObject* stringObject) {
-    if (!stringObject) return {};
-    auto* value = reinterpret_cast<Il2CppStringLayout*>(stringObject);
-    if (value->length <= 0 || value->length > 4096) return {};
-    std::string out;
-    out.reserve(static_cast<size_t>(value->length));
-    for (int32_t i = 0; i < value->length; ++i) {
-        char16_t ch = value->chars[i];
-        out.push_back(ch <= 0x7f ? static_cast<char>(ch) : '?');
+    Il2CppDomain* domain = gApi.domain_get();
+    if (!domain) return false;
+
+    const Il2CppImage* core = findImage(domain, "UnityEngine.CoreModule.dll");
+    gCSharpImage = findImage(domain, "Assembly-CSharp.dll");
+    if (!core || !gCSharpImage) return false;
+
+    gGameObjectClass = gApi.class_from_name(core, "UnityEngine", "GameObject");
+    gSpriteRendererClass = gApi.class_from_name(core, "UnityEngine", "SpriteRenderer");
+    gKorokClass = gApi.class_from_name(gCSharpImage, "", "KorokScript");
+    if (!gGameObjectClass || !gSpriteRendererClass || !gKorokClass) return false;
+
+    gGameObjectFind = gApi.class_get_method_from_name(gGameObjectClass, "Find", 1);
+    gGameObjectGetComponent = gApi.class_get_method_from_name(gGameObjectClass, "GetComponent", 1);
+    gGameObjectGetComponentInChildren =
+            gApi.class_get_method_from_name(gGameObjectClass, "GetComponentInChildren", 2);
+    gSpriteRendererGetColor =
+            gApi.class_get_method_from_name(gSpriteRendererClass, "get_color", 0);
+    gSpriteRendererSetColor =
+            gApi.class_get_method_from_name(gSpriteRendererClass, "set_color", 1);
+
+    gVisualField = gApi.class_get_field_from_name(gKorokClass, "visual");
+    gVisualBodyField = gApi.class_get_field_from_name(gKorokClass, "visualBody");
+    gVisualSpinField = gApi.class_get_field_from_name(gKorokClass, "visualSpin");
+
+    if (!gGameObjectFind || !gGameObjectGetComponent || !gGameObjectGetComponentInChildren ||
+            !gSpriteRendererGetColor || !gSpriteRendererSetColor ||
+            !gVisualField || !gVisualBodyField || !gVisualSpinField) {
+        return false;
     }
-    return out;
+
+    gResolved.store(true);
+    gVisualState.store(SUPER_VISUAL_BRIDGE_READY);
+    __android_log_print(ANDROID_LOG_INFO, TAG,
+                        "focused Korok visualBody/visualSpin bridge ready");
+    return true;
 }
 
-std::string objectName(Il2CppObject* object) {
-    return managedString(invoke(gObjectGetName, object));
+Il2CppObject* typeObject(Il2CppClass* klass) {
+    const Il2CppType* type = klass ? gApi.class_get_type(klass) : nullptr;
+    return type ? gApi.type_get_object(type) : nullptr;
 }
 
-std::string lowerCopy(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return value;
+Il2CppObject* findGameObject(const char* name) {
+    Il2CppObject* text = gApi.string_new(name);
+    if (!text) return nullptr;
+    void* args[] = {&text};
+    return invoke(gGameObjectFind, nullptr, args);
 }
 
-bool containsAny(const std::string& value, const std::vector<const char*>& needles) {
-    std::string lower = lowerCopy(value);
-    for (const char* needle : needles) {
-        if (lower.find(needle) != std::string::npos) return true;
+Il2CppObject* findSonicRoot() {
+    const char* names[] = {"Sonic", "Korok", "NiseSegaSonic", "Player"};
+    for (const char* name : names) {
+        Il2CppObject* found = findGameObject(name);
+        if (found) {
+            __android_log_print(ANDROID_LOG_INFO, TAG, "focused bridge found %s", name);
+            return found;
+        }
     }
-    return false;
+    return nullptr;
 }
 
-bool likelySonicMaterial(const std::string& identity) {
-    return containsAny(identity, {"sonic", "nisesega", "body", "quill", "fur", "atlas"});
+Il2CppObject* getComponent(Il2CppObject* gameObject, Il2CppClass* componentClass) {
+    if (!gameObject || !componentClass) return nullptr;
+    Il2CppObject* type = typeObject(componentClass);
+    if (!type) return nullptr;
+    Il2CppObject* typeArg = type;
+    void* args[] = {&typeArg};
+    return invoke(gGameObjectGetComponent, gameObject, args);
 }
 
-bool likelyDetailMaterial(const std::string& identity) {
-    return containsAny(identity, {"eye", "mouth", "shoe", "glove", "shield", "trail", "ring"});
+Il2CppObject* getComponentInChildren(Il2CppObject* gameObject, Il2CppClass* componentClass) {
+    if (!gameObject || !componentClass) return nullptr;
+    Il2CppObject* type = typeObject(componentClass);
+    if (!type) return nullptr;
+    bool includeInactive = true;
+    Il2CppObject* typeArg = type;
+    void* args[] = {&typeArg, &includeInactive};
+    return invoke(gGameObjectGetComponentInChildren, gameObject, args);
 }
 
-bool readColor(Il2CppObject* material, ColorValue* out) {
-    Il2CppObject* boxed = invoke(gMaterialGetColor, material);
+bool getColor(Il2CppObject* renderer, ColorValue* out) {
+    if (!renderer || !out) return false;
+    Il2CppObject* boxed = invoke(gSpriteRendererGetColor, renderer);
     if (!boxed) return false;
     void* raw = gApi.object_unbox(boxed);
     if (!raw) return false;
@@ -214,178 +232,87 @@ bool readColor(Il2CppObject* material, ColorValue* out) {
     return true;
 }
 
-void setColor(Il2CppObject* material, const ColorValue& color) {
+void setColor(Il2CppObject* renderer, const ColorValue& color) {
+    if (!renderer) return;
     ColorValue mutableColor = color;
     void* args[] = {&mutableColor};
-    invoke(gMaterialSetColor, material, args);
+    invoke(gSpriteRendererSetColor, renderer, args);
 }
 
-Il2CppObject* getMainTexture(Il2CppObject* material) {
-    return invoke(gMaterialGetMainTexture, material);
-}
-
-void setMainTexture(Il2CppObject* material, Il2CppObject* texture) {
-    Il2CppObject* mutableTexture = texture;
-    void* args[] = {&mutableTexture};
-    invoke(gMaterialSetMainTexture, material, args);
-}
-
-void releaseSnapshots(bool restore) {
-    for (MaterialSnapshot& snapshot : gSnapshots) {
-        Il2CppObject* material = snapshot.materialHandle
-                ? gApi.gchandle_get_target(snapshot.materialHandle) : nullptr;
-        if (restore && material) {
-            Il2CppObject* texture = snapshot.textureHandle
-                    ? gApi.gchandle_get_target(snapshot.textureHandle) : nullptr;
-            setMainTexture(material, texture);
-            setColor(material, snapshot.color);
-        }
-        if (snapshot.textureHandle) gApi.gchandle_free(snapshot.textureHandle);
-        if (snapshot.materialHandle) gApi.gchandle_free(snapshot.materialHandle);
+void clearSnapshots(bool restore) {
+    for (int i = 0; i < gSnapshotCount; ++i) {
+        TintSnapshot& snapshot = gSnapshots[i];
+        Il2CppObject* renderer = snapshot.rendererHandle
+                ? gApi.gchandle_get_target(snapshot.rendererHandle) : nullptr;
+        if (restore && renderer) setColor(renderer, snapshot.color);
+        if (snapshot.rendererHandle) gApi.gchandle_free(snapshot.rendererHandle);
+        snapshot.rendererHandle = 0;
     }
-    gSnapshots.clear();
+    gSnapshotCount = 0;
 }
 
-bool resolveUnityMethods() {
-    if (gResolved.load()) return true;
-    if (!loadApi()) return false;
-    Il2CppDomain* domain = gApi.domain_get();
-    if (!domain) return false;
-    const Il2CppImage* core = findImage(domain, "UnityEngine.CoreModule.dll");
-    if (!core) return false;
+bool addTintForVisual(Il2CppObject* visualGameObject) {
+    if (!visualGameObject || gSnapshotCount >= 3) return false;
+    Il2CppObject* renderer = getComponent(visualGameObject, gSpriteRendererClass);
+    if (!renderer) renderer = getComponentInChildren(visualGameObject, gSpriteRendererClass);
+    if (!renderer) return false;
 
-    Il2CppClass* gameObject = gApi.class_from_name(core, "UnityEngine", "GameObject");
-    gRendererClass = gApi.class_from_name(core, "UnityEngine", "Renderer");
-    Il2CppClass* material = gApi.class_from_name(core, "UnityEngine", "Material");
-    Il2CppClass* object = gApi.class_from_name(core, "UnityEngine", "Object");
-    if (!gameObject || !gRendererClass || !material || !object) return false;
-
-    gGameObjectFind = gApi.class_get_method_from_name(gameObject, "Find", 1);
-    gGameObjectGetComponentsInChildren =
-            gApi.class_get_method_from_name(gameObject, "GetComponentsInChildren", 2);
-    gRendererGetMaterials = gApi.class_get_method_from_name(gRendererClass, "get_materials", 0);
-    gMaterialGetColor = gApi.class_get_method_from_name(material, "get_color", 0);
-    gMaterialSetColor = gApi.class_get_method_from_name(material, "set_color", 1);
-    gMaterialGetMainTexture = gApi.class_get_method_from_name(material, "get_mainTexture", 0);
-    gMaterialSetMainTexture = gApi.class_get_method_from_name(material, "set_mainTexture", 1);
-    gObjectGetName = gApi.class_get_method_from_name(object, "get_name", 0);
-
-    if (!gGameObjectFind || !gGameObjectGetComponentsInChildren || !gRendererGetMaterials ||
-            !gMaterialGetColor || !gMaterialSetColor || !gMaterialGetMainTexture ||
-            !gMaterialSetMainTexture || !gObjectGetName) {
-        return false;
+    for (int i = 0; i < gSnapshotCount; ++i) {
+        Il2CppObject* existing = gApi.gchandle_get_target(gSnapshots[i].rendererHandle);
+        if (existing == renderer) return true;
     }
 
-    gResolved.store(true);
-    gVisualState.store(SUPER_VISUAL_BRIDGE_READY);
-    __android_log_print(ANDROID_LOG_INFO, TAG, "on-demand Super visual bridge ready");
+    ColorValue original{};
+    if (!getColor(renderer, &original)) return false;
+
+    uint32_t handle = gApi.gchandle_new(renderer, false);
+    if (!handle) return false;
+
+    gSnapshots[gSnapshotCount].rendererHandle = handle;
+    gSnapshots[gSnapshotCount].color = original;
+    ++gSnapshotCount;
+
+    // This keeps the original sprite/texture intact. It is intentionally much safer than
+    // Beta 3's material scanner and texture replacement path.
+    const ColorValue gold{1.0f, 0.82f, 0.14f, original.a};
+    setColor(renderer, gold);
     return true;
 }
 
-Il2CppObject* findGameObject(const char* name) {
-    Il2CppObject* managedName = gApi.string_new(name);
-    if (!managedName) return nullptr;
-    void* args[] = {&managedName};
-    return invoke(gGameObjectFind, nullptr, args);
-}
+bool applyFocusedGold() {
+    Il2CppObject* root = findSonicRoot();
+    if (!root) return false;
 
-Il2CppObject* findSonicGameObject() {
-    const char* names[] = {"Sonic", "Korok", "NiseSegaSonic", "Player"};
-    for (const char* name : names) {
-        Il2CppObject* found = findGameObject(name);
-        if (found) {
-            __android_log_print(ANDROID_LOG_INFO, TAG, "found player GameObject: %s", name);
-            return found;
-        }
-    }
-    __android_log_print(ANDROID_LOG_WARN, TAG, "could not find an active Sonic GameObject");
-    return nullptr;
-}
-
-bool captureAndApplyGold(Il2CppObject* gameObject) {
-    if (!gameObject) return false;
-    Il2CppObject* rendererType = gApi.type_get_object(gApi.class_get_type(gRendererClass));
-    if (!rendererType) return false;
-
-    bool includeInactive = true;
-    Il2CppObject* rendererTypeArg = rendererType;
-    void* rendererArgs[] = {&rendererTypeArg, &includeInactive};
-    Il2CppObject* renderers = invoke(gGameObjectGetComponentsInChildren, gameObject, rendererArgs);
-    if (!renderers) return false;
-
-    const size_t rendererCount = gApi.array_length(renderers);
-    void** rendererItems = arrayData(renderers);
-    if (!rendererItems || rendererCount == 0) return false;
-
-    std::vector<MaterialCandidate> candidates;
-    std::unordered_set<Il2CppObject*> seenMaterials;
-    for (size_t i = 0; i < rendererCount; ++i) {
-        auto* renderer = reinterpret_cast<Il2CppObject*>(rendererItems[i]);
-        if (!renderer) continue;
-        Il2CppObject* materials = invoke(gRendererGetMaterials, renderer);
-        if (!materials) continue;
-        const size_t materialCount = gApi.array_length(materials);
-        void** materialItems = arrayData(materials);
-        if (!materialItems) continue;
-        for (size_t j = 0; j < materialCount; ++j) {
-            auto* material = reinterpret_cast<Il2CppObject*>(materialItems[j]);
-            if (!material || !seenMaterials.insert(material).second) continue;
-            ColorValue original{};
-            if (!readColor(material, &original)) continue;
-            Il2CppObject* texture = getMainTexture(material);
-            std::string identity = objectName(material);
-            if (texture) {
-                std::string textureName = objectName(texture);
-                if (!textureName.empty()) {
-                    identity += " ";
-                    identity += textureName;
-                }
-            }
-            __android_log_print(ANDROID_LOG_INFO, TAG, "Sonic material candidate: %s", identity.c_str());
-            candidates.push_back({material, texture, original, identity});
-        }
-    }
-    if (candidates.empty()) return false;
-
-    bool hasNamedSonicMaterial = false;
-    for (const MaterialCandidate& candidate : candidates) {
-        if (likelySonicMaterial(candidate.identity)) {
-            hasNamedSonicMaterial = true;
-            break;
-        }
+    Il2CppObject* korok = getComponent(root, gKorokClass);
+    if (!korok) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, "KorokScript not found on Sonic root");
+        return false;
     }
 
-    const ColorValue goldBase{1.0f, 0.72f, 0.055f, 1.0f};
-    for (const MaterialCandidate& candidate : candidates) {
-        bool selected = hasNamedSonicMaterial
-                ? likelySonicMaterial(candidate.identity)
-                : !likelyDetailMaterial(candidate.identity);
-        if (!selected) continue;
+    Il2CppObject* visual = nullptr;
+    Il2CppObject* visualBody = nullptr;
+    Il2CppObject* visualSpin = nullptr;
+    gApi.field_get_value(korok, gVisualField, &visual);
+    gApi.field_get_value(korok, gVisualBodyField, &visualBody);
+    gApi.field_get_value(korok, gVisualSpinField, &visualSpin);
 
-        MaterialSnapshot snapshot;
-        snapshot.materialHandle = gApi.gchandle_new(candidate.material, false);
-        snapshot.textureHandle = candidate.texture ? gApi.gchandle_new(candidate.texture, false) : 0;
-        snapshot.color = candidate.color;
-        if (!snapshot.materialHandle) {
-            if (snapshot.textureHandle) gApi.gchandle_free(snapshot.textureHandle);
-            continue;
-        }
-        gSnapshots.push_back(snapshot);
+    clearSnapshots(false);
+    bool changed = false;
+    changed |= addTintForVisual(visualBody);
+    changed |= addTintForVisual(visualSpin);
+    changed |= addTintForVisual(visual);
 
-        ColorValue gold = goldBase;
-        gold.a = candidate.color.a;
-        setMainTexture(candidate.material, nullptr);
-        setColor(candidate.material, gold);
-    }
-
-    __android_log_print(ANDROID_LOG_INFO, TAG, "gold override applied to %zu materials", gSnapshots.size());
-    return !gSnapshots.empty();
+    __android_log_print(ANDROID_LOG_INFO, TAG,
+                        "focused gold tint applied to %d SpriteRenderer(s)", gSnapshotCount);
+    return changed && gSnapshotCount > 0;
 }
 
 }  // namespace
 
 bool install_super_visual_bridge() {
-    return resolveUnityMethods();
+    // Resolve metadata only. Do not enumerate renderers, patch MethodInfo memory, or mutate
+    // Unity objects during startup.
+    return resolveBridge();
 }
 
 bool super_visual_bridge_ready() {
@@ -393,29 +320,18 @@ bool super_visual_bridge_ready() {
 }
 
 bool request_super_visual(bool enabled) {
-    // IMPORTANT: this function is called only from UnityPlayer.invokeOnMainThread.
-    // Beta 2 crashed because it patched MethodInfo memory during startup. Beta 3 never
-    // writes to IL2CPP method tables and performs renderer work only on Unity's main thread.
-    if (!resolveUnityMethods()) {
+    if (!resolveBridge()) {
         gVisualState.store(SUPER_VISUAL_FAILED);
         return false;
     }
 
     if (!enabled) {
-        releaseSnapshots(true);
+        clearSnapshots(true);
         gVisualState.store(SUPER_VISUAL_NORMAL_RESTORED);
         return true;
     }
 
-    if (!gSnapshots.empty()) {
-        releaseSnapshots(true);
-    }
-    Il2CppObject* sonic = findSonicGameObject();
-    if (!sonic) {
-        gVisualState.store(SUPER_VISUAL_NO_RENDERERS);
-        return false;
-    }
-    const bool applied = captureAndApplyGold(sonic);
+    const bool applied = applyFocusedGold();
     gVisualState.store(applied ? SUPER_VISUAL_GOLD_APPLIED : SUPER_VISUAL_NO_RENDERERS);
     return applied;
 }
