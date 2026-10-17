@@ -1,0 +1,81 @@
+def runtimeAar = rootProject.file('runtime-payload/build/outputs/aar/runtime-payload-release.aar')
+def generatedAssetsDir = layout.buildDirectory.dir('generated/rebornRuntimeAssets').get().asFile
+def unpackDir = layout.buildDirectory.dir('tmp/rebornRuntimeAar').get().asFile
+def dexOutDir = layout.buildDirectory.dir('tmp/rebornRuntimeDex').get().asFile
+
+def findD8 = {
+    File buildToolsRoot = new File(android.sdkDirectory, 'build-tools')
+    File[] revisions = buildToolsRoot.listFiles({ File f -> f.isDirectory() } as FileFilter)
+    if (revisions == null || revisions.length == 0) {
+        throw new GradleException('Android build-tools not found under ' + buildToolsRoot)
+    }
+    List<File> sorted = revisions.toList().sort { a, b ->
+        def pa = a.name.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+        def pb = b.name.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+        int n = Math.max(pa.size(), pb.size())
+        for (int i = 0; i < n; i++) {
+            int va = i < pa.size() ? pa[i] : 0
+            int vb = i < pb.size() ? pb[i] : 0
+            if (va != vb) return va <=> vb
+        }
+        return 0
+    }
+    File selected = sorted.last()
+    File d8 = new File(selected, org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'd8.bat' : 'd8')
+    if (!d8.isFile()) throw new GradleException('d8 not found at ' + d8)
+    return d8
+}
+
+tasks.register('prepareRuntimePayload') {
+    dependsOn ':runtime-payload:assembleRelease'
+    outputs.dir generatedAssetsDir
+
+    doLast {
+        delete generatedAssetsDir, unpackDir, dexOutDir
+        generatedAssetsDir.mkdirs()
+        unpackDir.mkdirs()
+        dexOutDir.mkdirs()
+
+        if (!runtimeAar.isFile()) throw new GradleException('Runtime AAR missing: ' + runtimeAar)
+        copy {
+            from zipTree(runtimeAar)
+            into unpackDir
+        }
+
+        File classesJar = new File(unpackDir, 'classes.jar')
+        if (!classesJar.isFile()) throw new GradleException('Runtime AAR is missing classes.jar')
+
+        File d8 = findD8()
+        exec {
+            commandLine d8.absolutePath, classesJar.absolutePath,
+                    '--min-api', '23',
+                    '--output', dexOutDir.absolutePath
+        }
+
+        File classesDex = new File(dexOutDir, 'classes.dex')
+        if (!classesDex.isFile()) throw new GradleException('d8 did not produce classes.dex')
+
+        File runtimeRoot = new File(generatedAssetsDir, 'reborn-runtime')
+        runtimeRoot.mkdirs()
+        copy {
+            from classesDex
+            into runtimeRoot
+        }
+
+        ['arm64-v8a', 'armeabi-v7a'].each { abi ->
+            File abiSource = new File(unpackDir, 'jni/' + abi)
+            File wrapper = new File(abiSource, 'libmain.so')
+            File runtime = new File(abiSource, 'libreborn.so')
+            if (!wrapper.isFile() || !runtime.isFile()) {
+                throw new GradleException('Runtime AAR is missing native payload for ' + abi)
+            }
+            copy {
+                from wrapper, runtime
+                into new File(runtimeRoot, abi)
+            }
+        }
+    }
+}
+
+android.sourceSets.main.assets.srcDir generatedAssetsDir
+tasks.named('preBuild').configure { dependsOn tasks.named('prepareRuntimePayload') }
