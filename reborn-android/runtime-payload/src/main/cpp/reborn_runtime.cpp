@@ -1,5 +1,4 @@
 #include "reborn_runtime.h"
-#include "super_visual_bridge.h"
 
 #include <android/log.h>
 #include <atomic>
@@ -43,17 +42,16 @@ void initLoop() {
         if (env->ExceptionCheck()) {
             clearException(env, "reading UnityPlayer.currentActivity");
         } else if (activity) {
-            // Startup stays Java/JNI-only. No IL2CPP classes, MethodInfo objects, renderers or
-            // materials are touched here. The visual bridge is invoked later from Unity's own
-            // main thread only after the player presses GO SUPER.
+            // Beta 5 deliberately keeps startup and Super activation Java/JNI-only. No direct
+            // IL2CPP renderer/material APIs are called from Re-born native code.
             env->CallStaticVoidMethod(gOverlayClass, gInstallMethod, activity);
             clearException(env, "installing Re-born overlay");
             env->CallStaticVoidMethod(gVisualBridgeClass, gVisualInstallMethod, activity);
-            clearException(env, "installing crash-safe visual adapter");
-            postStatus(env, "REBORN RUNTIME ONLINE");
+            clearException(env, "installing crash-safe Super message adapter");
+            postStatus(env, "REBORN RUNTIME ONLINE • SAFE GAME HOOK");
             env->DeleteLocalRef(activity);
             __android_log_print(ANDROID_LOG_INFO, TAG,
-                                "Re-born runtime online; IL2CPP visual bridge deferred until GO SUPER");
+                                "Re-born runtime online; native IL2CPP Super visuals disabled");
             gVm->DetachCurrentThread();
             return;
         }
@@ -117,16 +115,4 @@ extern "C" int reborn_runtime_start(JavaVM* vm) {
     gVm = vm;
     std::thread(initLoop).detach();
     return 0;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornVisualBridge_nativeSetSuperVisualRequested(
-        JNIEnv*, jclass, jboolean enabled) {
-    return reborn::request_super_visual(enabled == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_com_sonicredux_reborn_runtimeui_RebornVisualBridge_nativeSuperVisualState(
-        JNIEnv*, jclass) {
-    return static_cast<jint>(reborn::super_visual_state());
 }
