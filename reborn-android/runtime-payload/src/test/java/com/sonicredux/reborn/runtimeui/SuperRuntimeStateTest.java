@@ -35,7 +35,7 @@ public class SuperRuntimeStateTest {
         state.finishTransition();
         assertTrue(state.toggleFlight());
         assertTrue(state.isFlightEnabled());
-        assertTrue(state.toggleFlight());
+        assertFalse(state.toggleFlight());
         assertFalse(state.isFlightEnabled());
 
         state.toggleFlight();
