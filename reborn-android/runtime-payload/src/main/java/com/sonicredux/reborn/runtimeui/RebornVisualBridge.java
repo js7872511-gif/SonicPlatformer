@@ -9,15 +9,16 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Crash-safe adapter for the native Super renderer bridge.
+ * Safe adapter between the Android overlay and the focused Redux Super visual bridge.
  *
- * Beta 2 touched IL2CPP from native background threads during startup. Unity's object/material
- * APIs are main-thread APIs, so Beta 3 leaves IL2CPP completely alone until GO SUPER is pressed
- * and dispatches the renderer request through UnityPlayer.invokeOnMainThread(Runnable).
+ * Beta 3 still used a broad native renderer/material scan when GO SUPER was pressed. Beta 4
+ * narrows that native path to KorokScript.visual / visualBody / visualSpin and their own
+ * SpriteRenderers. The native request is still delayed until the transformation has finished.
  */
 public final class RebornVisualBridge {
     private static final long APPLY_DELAY_MS = 1650L;
     private static final long RESTORE_DELAY_MS = 900L;
+    private static final float FX_VERTICAL_SHIFT = 0.12f;
 
     private static Activity activity;
     private static Handler handler;
@@ -42,6 +43,8 @@ public final class RebornVisualBridge {
                 overlayToggleSuper = RebornOverlay.class.getDeclaredMethod("toggleSuper");
                 overlayToggleSuper.setAccessible(true);
 
+                alignTransformationFxToSonicArea();
+
                 if (goSuper == null) {
                     RebornOverlay.setRuntimeStatus("REBORN RUNTIME ONLINE • SAFE MODE");
                     return;
@@ -56,6 +59,21 @@ public final class RebornVisualBridge {
         });
     }
 
+    private static void alignTransformationFxToSonicArea() {
+        try {
+            Field fxField = RebornOverlay.class.getDeclaredField("fxView");
+            fxField.setAccessible(true);
+            View fx = (View) fxField.get(null);
+            if (fx == null) return;
+            fx.post(() -> {
+                int height = fx.getHeight();
+                if (height > 0) fx.setTranslationY(height * FX_VERTICAL_SHIFT);
+            });
+        } catch (Throwable ignored) {
+            // Effects are optional. Never risk the game over an overlay-position adjustment.
+        }
+    }
+
     private static void onGoSuperClicked(View ignored) {
         if (goSuper == null || overlayToggleSuper == null || !goSuper.isEnabled()) return;
         String before = String.valueOf(goSuper.getText());
@@ -64,7 +82,7 @@ public final class RebornVisualBridge {
         if (!goingSuper && !goingNormal) return;
 
         try {
-            // Preserve the existing emerald animation, ability-button state, aura and effects.
+            // Keeps the existing 7-emerald animation, buttons and Redux OnInvincible sparkles.
             overlayToggleSuper.invoke(null);
         } catch (Throwable error) {
             RebornOverlay.setRuntimeStatus("SUPER TRANSFORM ERROR");
@@ -83,9 +101,9 @@ public final class RebornVisualBridge {
             handler.post(() -> {
                 if (superEnabled) {
                     if (success && state == 2) {
-                        RebornOverlay.setRuntimeStatus("SUPER SONIC • GOLD ACTIVE");
+                        RebornOverlay.setRuntimeStatus("SUPER SONIC • GOLD TINT ACTIVE");
                     } else if (state == -2) {
-                        RebornOverlay.setRuntimeStatus("SUPER VISUAL • SONIC MATERIAL NOT FOUND");
+                        RebornOverlay.setRuntimeStatus("SUPER VISUAL • PLAYER SPRITE NOT FOUND");
                     } else {
                         RebornOverlay.setRuntimeStatus("SUPER VISUAL BRIDGE ERROR");
                     }
