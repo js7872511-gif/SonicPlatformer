@@ -26,6 +26,21 @@ public class SuperRuntimeStateTest {
         assertFalse(state.isSuper());
     }
 
+    @Test public void desiredSuperVisualCoversTransformInAndRestoresOnTransformOut() {
+        SuperRuntimeState state = new SuperRuntimeState();
+        assertFalse(state.wantsSuperVisual());
+
+        state.toggleSuper();
+        assertTrue(state.wantsSuperVisual());
+        state.finishTransition();
+        assertTrue(state.wantsSuperVisual());
+
+        state.toggleSuper();
+        assertFalse(state.wantsSuperVisual());
+        state.finishTransition();
+        assertFalse(state.wantsSuperVisual());
+    }
+
     @Test public void flightOnlyTogglesWhileStableSuper() {
         SuperRuntimeState state = new SuperRuntimeState();
         assertFalse(state.toggleFlight());
@@ -53,9 +68,11 @@ public class SuperRuntimeStateTest {
         state.forceNormal();
         assertEquals(SuperRuntimeState.Mode.NORMAL, state.mode());
         assertFalse(state.isFlightEnabled());
+        assertFalse(state.wantsSuperVisual());
 
         state.forceNormal();
         assertEquals(SuperRuntimeState.Mode.NORMAL, state.mode());
         assertFalse(state.isFlightEnabled());
+        assertFalse(state.wantsSuperVisual());
     }
 }
