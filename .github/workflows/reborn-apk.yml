@@ -1,7 +1,7 @@
 name: Build Sonic Redux Re-born APK
 on:
   push:
-    branches: [reborn-apk-build]
+    branches: [reborn-apk-build, reborn-v0.2-runtime]
   workflow_dispatch:
 
 jobs:
