@@ -11,13 +11,19 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.core.content.FileProvider;
+
 import com.sonicredux.reborn.core.ModManifest;
 import com.sonicredux.reborn.core.ZipOverlayBuilder;
+import com.sonicredux.reborn.runtime.ReduxBuildProfile;
+import com.sonicredux.reborn.runtime.RuntimeInjector;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -38,8 +44,10 @@ public class MainActivity extends Activity {
     private static final String ORIGINAL_PACKAGE = "com.SpecialTeams.SonicRedux";
     private static final String REBORN_GAME_PACKAGE = "com.RebornXTeams.SonicRedux";
     private static final String PREFS = "reborn_mods";
+    private static final String PREF_RUNTIME = "runtime_v2_enabled";
 
     private TextView status;
+    private CheckBox runtimeEnabled;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -66,12 +74,12 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Android Mod Manager • v0.1");
+        subtitle.setText("Android Mod Manager • v0.2 BETA");
         subtitle.setTextColor(Color.rgb(110, 200, 255));
         subtitle.setTextSize(15);
         subtitle.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(6), 0, dp(24));
+        subLp.setMargins(0, dp(6), 0, dp(18));
         root.addView(subtitle, subLp);
 
         status = new TextView(this);
@@ -79,6 +87,18 @@ public class MainActivity extends Activity {
         status.setTextSize(14);
         status.setPadding(dp(12), dp(12), dp(12), dp(12));
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
+
+        runtimeEnabled = new CheckBox(this);
+        runtimeEnabled.setText("ENABLE V0.2 SUPER RUNTIME");
+        runtimeEnabled.setTextColor(Color.rgb(255, 220, 80));
+        runtimeEnabled.setChecked(prefs().getBoolean(PREF_RUNTIME, true));
+        runtimeEnabled.setOnCheckedChangeListener((buttonView, checked) -> {
+            prefs().edit().putBoolean(PREF_RUNTIME, checked).apply();
+            updateStatus();
+        });
+        LinearLayout.LayoutParams runtimeLp = new LinearLayout.LayoutParams(-1, dp(52));
+        runtimeLp.setMargins(0, dp(4), 0, dp(4));
+        root.addView(runtimeEnabled, runtimeLp);
 
         root.addView(button("1. SELECT ORIGINAL SONIC REDUX APK", v -> chooseBase()));
         root.addView(button("2. IMPORT MOD", v -> chooseMod()));
@@ -88,7 +108,7 @@ public class MainActivity extends Activity {
         root.addView(button("PLAY ORIGINAL", v -> launchPackage(ORIGINAL_PACKAGE)));
 
         TextView note = new TextView(this);
-        note.setText("Your original APK is copied into this app's private storage and never edited in place. Every mod build starts from that clean copy.");
+        note.setText("v0.2 runtime adds GO SUPER, the seven Chaos Emerald transformation, Flight, Super Boost and Chaos Burst. Your original APK stays untouched.");
         note.setTextColor(Color.rgb(150, 165, 190));
         note.setTextSize(12);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
@@ -192,21 +212,48 @@ public class MainActivity extends Activity {
     private void buildAndInstall() {
         File base = new File(rebornDir(), "clean-base.apk");
         if (!base.isFile()) { toast("Select your original Sonic Redux APK first."); return; }
-        setStatus("Building Re-born from the clean base…");
+        final boolean withRuntime = prefs().getBoolean(PREF_RUNTIME, true);
+        setStatus(withRuntime ? "Checking Redux runtime compatibility…" : "Building overlay-only Re-born…");
         worker.execute(() -> {
             try {
+                if (withRuntime) {
+                    ReduxBuildProfile.ValidationResult compatibility = ReduxBuildProfile.validate(base);
+                    if (!compatibility.supported) {
+                        throw new IllegalArgumentException("Runtime unsupported for this Redux APK: " + compatibility.reason);
+                    }
+                }
+
                 List<File> enabled = new ArrayList<>();
                 for (File f : listMods()) if (prefs().getBoolean("enabled:" + f.getName(), true)) enabled.add(f);
-                File workUnsigned = new File(getCacheDir(), "reborn-unsigned.apk");
+
+                File overlayApk = new File(getCacheDir(), "reborn-overlay.apk");
+                File runtimeApk = new File(getCacheDir(), "reborn-runtime.apk");
                 File workSigned = new File(getCacheDir(), "reborn-signed.apk");
-                workUnsigned.delete(); workSigned.delete();
-                ZipOverlayBuilder.build(base, enabled, workUnsigned, ORIGINAL_PACKAGE, REBORN_GAME_PACKAGE);
-                RebornSigner.sign(this, workUnsigned, workSigned);
+                overlayApk.delete(); runtimeApk.delete(); workSigned.delete();
+
+                runOnUiThread(() -> setStatus("Applying Re-born APK changes…"));
+                ZipOverlayBuilder.build(base, enabled, overlayApk, ORIGINAL_PACKAGE, REBORN_GAME_PACKAGE);
+
+                File apkToSign = overlayApk;
+                if (withRuntime) {
+                    runOnUiThread(() -> setStatus("Injecting v0.2 Super runtime…"));
+                    RuntimeInjector.inject(this, overlayApk, runtimeApk);
+                    apkToSign = runtimeApk;
+                }
+
+                runOnUiThread(() -> setStatus("Signing Re-born game…"));
+                RebornSigner.sign(this, apkToSign, workSigned);
+
                 File promote = new File(rebornDir(), "last-successful.tmp.apk");
                 copyFile(workSigned, promote);
                 File last = new File(rebornDir(), "last-successful.apk");
                 replaceFile(promote, last);
-                runOnUiThread(() -> { setStatus("Build complete. Opening Android installer…"); requestInstall(last); });
+                runOnUiThread(() -> {
+                    setStatus(withRuntime
+                            ? "v0.2 Super runtime build complete. Opening Android installer…"
+                            : "Overlay build complete. Opening Android installer…");
+                    requestInstall(last);
+                });
             } catch (Exception e) { showError("Build failed — previous successful build was kept", e); }
         });
     }
@@ -315,9 +362,12 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         if (status == null) return;
         boolean base = new File(rebornDir(), "clean-base.apk").isFile();
+        boolean runtime = prefs().getBoolean(PREF_RUNTIME, true);
         int total = listMods().length, enabled = 0;
         for (File f : listMods()) if (prefs().getBoolean("enabled:" + f.getName(), true)) enabled++;
-        status.setText((base ? "✓ Clean Redux base ready" : "○ Original Redux APK not selected") + "\n" + enabled + " / " + total + " mods enabled");
+        status.setText((base ? "✓ Clean Redux base ready" : "○ Original Redux APK not selected")
+                + "\n" + enabled + " / " + total + " file mods enabled"
+                + "\n" + (runtime ? "✓ v0.2 Super runtime enabled" : "○ Runtime disabled (v0.1 overlay mode)"));
     }
 
     private void setStatus(String text) { if (status != null) status.setText(text); }
