@@ -4,9 +4,11 @@ on:
     branches: [reborn-apk-build, reborn-v0.2-runtime]
   workflow_dispatch:
 
+# Key by commit while the runtime branch is under rapid iteration. This prevents an older
+# cancellation-delayed run from blocking verification of the newest phone-test build.
 concurrency:
-  group: reborn-${{ github.ref }}
-  cancel-in-progress: true
+  group: reborn-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build:
