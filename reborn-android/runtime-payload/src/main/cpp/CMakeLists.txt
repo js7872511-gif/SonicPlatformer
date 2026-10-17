@@ -8,6 +8,8 @@ add_library(main SHARED main_wrapper.cpp)
 set_target_properties(main PROPERTIES OUTPUT_NAME "main")
 target_link_libraries(main log dl)
 
-add_library(reborn SHARED reborn_runtime.cpp)
+add_library(reborn SHARED
+        reborn_runtime.cpp
+        super_visual_bridge.cpp)
 set_target_properties(reborn PROPERTIES OUTPUT_NAME "reborn")
 target_link_libraries(reborn log dl)
