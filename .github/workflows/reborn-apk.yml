@@ -4,8 +4,6 @@ on:
     branches: [reborn-apk-build, reborn-v0.2-runtime]
   workflow_dispatch:
 
-# Key by commit while the runtime branch is under rapid iteration. This prevents an older
-# cancellation-delayed run from blocking verification of the newest phone-test build.
 concurrency:
   group: reborn-${{ github.sha }}
   cancel-in-progress: false
@@ -44,16 +42,16 @@ jobs:
           grep -F 'jni/armeabi-v7a/libreborn.so' /tmp/runtime-aar.txt
           unzip -p "$AAR" classes.jar > /tmp/runtime-classes.jar
           unzip -l /tmp/runtime-classes.jar | grep -F 'com/sonicredux/reborn/runtimeui/RebornVisualBridge.class'
+          unzip -l /tmp/runtime-classes.jar | grep -F 'com/sonicredux/reborn/runtimeui/SuperMessageRoute.class'
           unzip -p "$AAR" jni/arm64-v8a/libreborn.so > /tmp/libreborn.so
           strings /tmp/libreborn.so > /tmp/reborn-native-strings.txt
-          grep -F 'focused Korok visualBody/visualSpin bridge ready' /tmp/reborn-native-strings.txt
-          grep -F 'focused gold tint applied to %d SpriteRenderer(s)' /tmp/reborn-native-strings.txt
-          if grep -Fq 'KorokScript.OnInvincible hook installed' /tmp/reborn-native-strings.txt; then
-            echo 'Unsafe startup MethodInfo hook is still present' >&2
+          grep -F 'native IL2CPP Super visuals disabled' /tmp/reborn-native-strings.txt
+          if grep -Fq 'il2cpp_' /tmp/reborn-native-strings.txt; then
+            echo 'Direct IL2CPP calls are still present in Beta 5 libreborn.so' >&2
             exit 1
           fi
-          if grep -Fq 'gold override applied to %zu materials' /tmp/reborn-native-strings.txt; then
-            echo 'Broad Beta 3 material scanner is still present' >&2
+          if grep -Fq 'nativeSetSuperVisualRequested' /tmp/reborn-native-strings.txt; then
+            echo 'Old native Super visual JNI path is still present' >&2
             exit 1
           fi
       - name: Build manager APK
@@ -64,7 +62,7 @@ jobs:
           BT=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
           "$BT/aapt" dump badging "$APK" | tee /tmp/badging.txt
           grep -F "package: name='com.sonicredux.reborn'" /tmp/badging.txt
-          grep -F "versionName='0.2.3-beta4'" /tmp/badging.txt
+          grep -F "versionName='0.2.4-beta5'" /tmp/badging.txt
           grep -F "application-label:'Sonic Redux Re-born'" /tmp/badging.txt
           "$BT/apksigner" verify --verbose "$APK" | tee /tmp/apksig.txt
           grep -F "Verified using v1 scheme (JAR signing): true" /tmp/apksig.txt
@@ -76,10 +74,11 @@ jobs:
           grep -F 'assets/reborn-runtime/armeabi-v7a/libmain.so' /tmp/manager-apk.txt
           grep -F 'assets/reborn-runtime/armeabi-v7a/libreborn.so' /tmp/manager-apk.txt
           unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'RebornVisualBridge'
-          unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'GOLD TINT ACTIVE'
+          unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'SuperMessageRoute'
+          unzip -p "$APK" assets/reborn-runtime/classes.dex | strings | grep -F 'SAFE GAME HOOK'
       - name: Package artifact
-        run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.2_Beta4.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Sonic_Redux_Re-born_v0.2_Beta5.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Sonic-Redux-Re-born-v0.2-Beta4
-          path: reborn-android/Sonic_Redux_Re-born_v0.2_Beta4.apk
+          name: Sonic-Redux-Re-born-v0.2-Beta5
+          path: reborn-android/Sonic_Redux_Re-born_v0.2_Beta5.apk
