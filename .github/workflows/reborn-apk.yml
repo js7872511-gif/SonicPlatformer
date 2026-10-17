@@ -40,8 +40,13 @@ jobs:
           grep -F 'jni/arm64-v8a/libreborn.so' /tmp/runtime-aar.txt
           grep -F 'jni/armeabi-v7a/libmain.so' /tmp/runtime-aar.txt
           grep -F 'jni/armeabi-v7a/libreborn.so' /tmp/runtime-aar.txt
-          unzip -p "$AAR" jni/arm64-v8a/libreborn.so | strings | grep -F 'KorokScript.OnInvincible hook installed'
-          unzip -p "$AAR" jni/arm64-v8a/libreborn.so | strings | grep -F 'gold override applied to %zu materials'
+          strings <(unzip -p "$AAR" jni/arm64-v8a/libreborn.so) > /tmp/reborn-native-strings.txt
+          grep -F 'on-demand Super visual bridge ready' /tmp/reborn-native-strings.txt
+          grep -F 'gold override applied to %zu materials' /tmp/reborn-native-strings.txt
+          if grep -Fq 'KorokScript.OnInvincible hook installed' /tmp/reborn-native-strings.txt; then
+            echo 'Unsafe startup MethodInfo hook is still present' >&2
+            exit 1
+          fi
       - name: Build manager APK
         run: gradle assembleDebug --stacktrace
       - name: Static APK checks
