@@ -2,8 +2,6 @@
 
 #include <android/log.h>
 #include <dlfcn.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -61,8 +59,7 @@ struct Api {
     Il2CppObject* (*runtime_invoke)(const MethodInfo*, void*, void**, Il2CppException**) = nullptr;
     void* (*object_unbox)(Il2CppObject*) = nullptr;
     size_t (*array_length)(Il2CppObject*) = nullptr;
-    void* (*thread_attach)(Il2CppDomain*) = nullptr;
-    void (*thread_detach)(void*) = nullptr;
+    Il2CppObject* (*string_new)(const char*) = nullptr;
     uint32_t (*gchandle_new)(Il2CppObject*, bool) = nullptr;
     Il2CppObject* (*gchandle_get_target)(uint32_t) = nullptr;
     void (*gchandle_free)(uint32_t) = nullptr;
@@ -83,11 +80,10 @@ struct MaterialCandidate {
 
 Api gApi;
 std::atomic<bool> gApiLoaded{false};
-std::atomic<bool> gHookInstalled{false};
-std::atomic<bool> gDesiredSuper{false};
+std::atomic<bool> gResolved{false};
 std::atomic<int> gVisualState{SUPER_VISUAL_NOT_READY};
 
-const MethodInfo* gComponentGetGameObject = nullptr;
+const MethodInfo* gGameObjectFind = nullptr;
 const MethodInfo* gGameObjectGetComponentsInChildren = nullptr;
 const MethodInfo* gRendererGetMaterials = nullptr;
 const MethodInfo* gMaterialGetColor = nullptr;
@@ -96,10 +92,6 @@ const MethodInfo* gMaterialGetMainTexture = nullptr;
 const MethodInfo* gMaterialSetMainTexture = nullptr;
 const MethodInfo* gObjectGetName = nullptr;
 Il2CppClass* gRendererClass = nullptr;
-
-using OnInvincibleFn = void (*)(void*, const MethodInfo*);
-std::atomic<void*> gOriginalOnInvincible{nullptr};
-void* gOwner = nullptr;
 std::vector<MaterialSnapshot> gSnapshots;
 
 bool loadSymbol(void** out, const char* name) {
@@ -113,9 +105,11 @@ bool loadSymbol(void** out, const char* name) {
 
 bool loadApi() {
     if (gApiLoaded.load()) return true;
-    gApi.handle = dlopen("libil2cpp.so", RTLD_NOW | RTLD_GLOBAL);
     if (!gApi.handle) {
-        __android_log_print(ANDROID_LOG_WARN, TAG, "libil2cpp.so is not loaded yet");
+        gApi.handle = dlopen("libil2cpp.so", RTLD_NOW | RTLD_GLOBAL);
+    }
+    if (!gApi.handle) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, "libil2cpp.so unavailable for on-demand visual request");
         return false;
     }
 
@@ -132,8 +126,7 @@ bool loadApi() {
     LOAD_API(runtime_invoke, "il2cpp_runtime_invoke");
     LOAD_API(object_unbox, "il2cpp_object_unbox");
     LOAD_API(array_length, "il2cpp_array_length");
-    LOAD_API(thread_attach, "il2cpp_thread_attach");
-    LOAD_API(thread_detach, "il2cpp_thread_detach");
+    LOAD_API(string_new, "il2cpp_string_new");
     LOAD_API(gchandle_new, "il2cpp_gchandle_new");
     LOAD_API(gchandle_get_target, "il2cpp_gchandle_get_target");
     LOAD_API(gchandle_free, "il2cpp_gchandle_free");
@@ -160,7 +153,7 @@ Il2CppObject* invoke(const MethodInfo* method, void* instance, void** args = nul
     Il2CppException* exception = nullptr;
     Il2CppObject* result = gApi.runtime_invoke(method, instance, args, &exception);
     if (exception) {
-        __android_log_print(ANDROID_LOG_WARN, TAG, "managed exception while invoking Unity API");
+        __android_log_print(ANDROID_LOG_WARN, TAG, "managed exception while invoking Unity visual API");
         return nullptr;
     }
     return result;
@@ -251,30 +244,66 @@ void releaseSnapshots(bool restore) {
         if (snapshot.materialHandle) gApi.gchandle_free(snapshot.materialHandle);
     }
     gSnapshots.clear();
-    gOwner = nullptr;
 }
 
-bool reapplyGold() {
-    if (gSnapshots.empty()) return false;
-    const ColorValue goldBase{1.0f, 0.72f, 0.055f, 1.0f};
-    size_t changed = 0;
-    for (MaterialSnapshot& snapshot : gSnapshots) {
-        Il2CppObject* material = snapshot.materialHandle
-                ? gApi.gchandle_get_target(snapshot.materialHandle) : nullptr;
-        if (!material) continue;
-        ColorValue gold = goldBase;
-        gold.a = snapshot.color.a;
-        setMainTexture(material, nullptr);
-        setColor(material, gold);
-        ++changed;
+bool resolveUnityMethods() {
+    if (gResolved.load()) return true;
+    if (!loadApi()) return false;
+    Il2CppDomain* domain = gApi.domain_get();
+    if (!domain) return false;
+    const Il2CppImage* core = findImage(domain, "UnityEngine.CoreModule.dll");
+    if (!core) return false;
+
+    Il2CppClass* gameObject = gApi.class_from_name(core, "UnityEngine", "GameObject");
+    gRendererClass = gApi.class_from_name(core, "UnityEngine", "Renderer");
+    Il2CppClass* material = gApi.class_from_name(core, "UnityEngine", "Material");
+    Il2CppClass* object = gApi.class_from_name(core, "UnityEngine", "Object");
+    if (!gameObject || !gRendererClass || !material || !object) return false;
+
+    gGameObjectFind = gApi.class_get_method_from_name(gameObject, "Find", 1);
+    gGameObjectGetComponentsInChildren =
+            gApi.class_get_method_from_name(gameObject, "GetComponentsInChildren", 2);
+    gRendererGetMaterials = gApi.class_get_method_from_name(gRendererClass, "get_materials", 0);
+    gMaterialGetColor = gApi.class_get_method_from_name(material, "get_color", 0);
+    gMaterialSetColor = gApi.class_get_method_from_name(material, "set_color", 1);
+    gMaterialGetMainTexture = gApi.class_get_method_from_name(material, "get_mainTexture", 0);
+    gMaterialSetMainTexture = gApi.class_get_method_from_name(material, "set_mainTexture", 1);
+    gObjectGetName = gApi.class_get_method_from_name(object, "get_name", 0);
+
+    if (!gGameObjectFind || !gGameObjectGetComponentsInChildren || !gRendererGetMaterials ||
+            !gMaterialGetColor || !gMaterialSetColor || !gMaterialGetMainTexture ||
+            !gMaterialSetMainTexture || !gObjectGetName) {
+        return false;
     }
-    return changed > 0;
+
+    gResolved.store(true);
+    gVisualState.store(SUPER_VISUAL_BRIDGE_READY);
+    __android_log_print(ANDROID_LOG_INFO, TAG, "on-demand Super visual bridge ready");
+    return true;
 }
 
-bool captureAndApplyGold(void* korok) {
-    Il2CppObject* gameObject = invoke(gComponentGetGameObject, korok);
-    if (!gameObject) return false;
+Il2CppObject* findGameObject(const char* name) {
+    Il2CppObject* managedName = gApi.string_new(name);
+    if (!managedName) return nullptr;
+    void* args[] = {&managedName};
+    return invoke(gGameObjectFind, nullptr, args);
+}
 
+Il2CppObject* findSonicGameObject() {
+    const char* names[] = {"Sonic", "Korok", "NiseSegaSonic", "Player"};
+    for (const char* name : names) {
+        Il2CppObject* found = findGameObject(name);
+        if (found) {
+            __android_log_print(ANDROID_LOG_INFO, TAG, "found player GameObject: %s", name);
+            return found;
+        }
+    }
+    __android_log_print(ANDROID_LOG_WARN, TAG, "could not find an active Sonic GameObject");
+    return nullptr;
+}
+
+bool captureAndApplyGold(Il2CppObject* gameObject) {
+    if (!gameObject) return false;
     Il2CppObject* rendererType = gApi.type_get_object(gApi.class_get_type(gRendererClass));
     if (!rendererType) return false;
 
@@ -312,11 +341,10 @@ bool captureAndApplyGold(void* korok) {
                     identity += textureName;
                 }
             }
-            __android_log_print(ANDROID_LOG_INFO, TAG, "Sonic child material: %s", identity.c_str());
+            __android_log_print(ANDROID_LOG_INFO, TAG, "Sonic material candidate: %s", identity.c_str());
             candidates.push_back({material, texture, original, identity});
         }
     }
-
     if (candidates.empty()) return false;
 
     bool hasNamedSonicMaterial = false;
@@ -350,127 +378,46 @@ bool captureAndApplyGold(void* korok) {
         setColor(candidate.material, gold);
     }
 
-    if (gSnapshots.empty() && hasNamedSonicMaterial) {
-        // Name matching can vary between Redux scenes. Fall back to all non-detail materials.
-        for (const MaterialCandidate& candidate : candidates) {
-            if (likelyDetailMaterial(candidate.identity)) continue;
-            MaterialSnapshot snapshot;
-            snapshot.materialHandle = gApi.gchandle_new(candidate.material, false);
-            snapshot.textureHandle = candidate.texture ? gApi.gchandle_new(candidate.texture, false) : 0;
-            snapshot.color = candidate.color;
-            if (!snapshot.materialHandle) {
-                if (snapshot.textureHandle) gApi.gchandle_free(snapshot.textureHandle);
-                continue;
-            }
-            gSnapshots.push_back(snapshot);
-            ColorValue gold = goldBase;
-            gold.a = candidate.color.a;
-            setMainTexture(candidate.material, nullptr);
-            setColor(candidate.material, gold);
-        }
-    }
-
-    gOwner = korok;
     __android_log_print(ANDROID_LOG_INFO, TAG, "gold override applied to %zu materials", gSnapshots.size());
     return !gSnapshots.empty();
-}
-
-void applyRequestedVisual(void* korok) {
-    if (!korok || !gHookInstalled.load()) return;
-    if (gDesiredSuper.load()) {
-        if (gOwner != korok) {
-            releaseSnapshots(false);
-        }
-        bool applied = !gSnapshots.empty() ? reapplyGold() : captureAndApplyGold(korok);
-        gVisualState.store(applied ? SUPER_VISUAL_GOLD_APPLIED : SUPER_VISUAL_NO_RENDERERS);
-    } else {
-        releaseSnapshots(true);
-        gVisualState.store(SUPER_VISUAL_NORMAL_RESTORED);
-    }
-}
-
-void onInvincibleHook(void* self, const MethodInfo* method) {
-    auto original = reinterpret_cast<OnInvincibleFn>(gOriginalOnInvincible.load());
-    if (original) original(self, method);
-    applyRequestedVisual(self);
-}
-
-bool makeWritable(void* address, size_t bytes) {
-    const long pageSize = sysconf(_SC_PAGESIZE);
-    if (pageSize <= 0) return false;
-    const uintptr_t mask = static_cast<uintptr_t>(pageSize - 1);
-    const uintptr_t start = reinterpret_cast<uintptr_t>(address) & ~mask;
-    const uintptr_t end = (reinterpret_cast<uintptr_t>(address) + bytes + mask) & ~mask;
-    return mprotect(reinterpret_cast<void*>(start), end - start, PROT_READ | PROT_WRITE) == 0;
-}
-
-bool resolveUnityMethods(Il2CppDomain* domain) {
-    const Il2CppImage* csharp = findImage(domain, "Assembly-CSharp.dll");
-    const Il2CppImage* core = findImage(domain, "UnityEngine.CoreModule.dll");
-    if (!csharp || !core) return false;
-
-    Il2CppClass* korok = gApi.class_from_name(csharp, "", "KorokScript");
-    Il2CppClass* component = gApi.class_from_name(core, "UnityEngine", "Component");
-    Il2CppClass* gameObject = gApi.class_from_name(core, "UnityEngine", "GameObject");
-    gRendererClass = gApi.class_from_name(core, "UnityEngine", "Renderer");
-    Il2CppClass* material = gApi.class_from_name(core, "UnityEngine", "Material");
-    Il2CppClass* object = gApi.class_from_name(core, "UnityEngine", "Object");
-    if (!korok || !component || !gameObject || !gRendererClass || !material || !object) return false;
-
-    const MethodInfo* onInvincible = gApi.class_get_method_from_name(korok, "OnInvincible", 0);
-    gComponentGetGameObject = gApi.class_get_method_from_name(component, "get_gameObject", 0);
-    gGameObjectGetComponentsInChildren = gApi.class_get_method_from_name(gameObject, "GetComponentsInChildren", 2);
-    gRendererGetMaterials = gApi.class_get_method_from_name(gRendererClass, "get_materials", 0);
-    gMaterialGetColor = gApi.class_get_method_from_name(material, "get_color", 0);
-    gMaterialSetColor = gApi.class_get_method_from_name(material, "set_color", 1);
-    gMaterialGetMainTexture = gApi.class_get_method_from_name(material, "get_mainTexture", 0);
-    gMaterialSetMainTexture = gApi.class_get_method_from_name(material, "set_mainTexture", 1);
-    gObjectGetName = gApi.class_get_method_from_name(object, "get_name", 0);
-
-    if (!onInvincible || !gComponentGetGameObject || !gGameObjectGetComponentsInChildren ||
-            !gRendererGetMaterials || !gMaterialGetColor || !gMaterialSetColor ||
-            !gMaterialGetMainTexture || !gMaterialSetMainTexture || !gObjectGetName) {
-        return false;
-    }
-
-    auto** words = reinterpret_cast<void**>(const_cast<MethodInfo*>(onInvincible));
-    void* original = words[0];
-    if (!original || original == reinterpret_cast<void*>(&onInvincibleHook)) return original != nullptr;
-    if (!makeWritable(words, sizeof(void*))) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "could not make OnInvincible MethodInfo writable");
-        return false;
-    }
-
-    gOriginalOnInvincible.store(original);
-    words[0] = reinterpret_cast<void*>(&onInvincibleHook);
-    __android_log_print(ANDROID_LOG_INFO, TAG, "KorokScript.OnInvincible hook installed");
-    return true;
 }
 
 }  // namespace
 
 bool install_super_visual_bridge() {
-    if (gHookInstalled.load()) return true;
-    if (!loadApi()) return false;
-    Il2CppDomain* domain = gApi.domain_get();
-    if (!domain) return false;
-    void* thread = gApi.thread_attach(domain);
-    if (!thread) return false;
-    const bool ok = resolveUnityMethods(domain);
-    gApi.thread_detach(thread);
-    if (ok) {
-        gHookInstalled.store(true);
-        gVisualState.store(SUPER_VISUAL_HOOK_READY);
-    }
-    return ok;
+    return resolveUnityMethods();
 }
 
 bool super_visual_bridge_ready() {
-    return gHookInstalled.load();
+    return gResolved.load();
 }
 
-void request_super_visual(bool enabled) {
-    gDesiredSuper.store(enabled);
+bool request_super_visual(bool enabled) {
+    // IMPORTANT: this function is called only from UnityPlayer.invokeOnMainThread.
+    // Beta 2 crashed because it patched MethodInfo memory during startup. Beta 3 never
+    // writes to IL2CPP method tables and performs renderer work only on Unity's main thread.
+    if (!resolveUnityMethods()) {
+        gVisualState.store(SUPER_VISUAL_FAILED);
+        return false;
+    }
+
+    if (!enabled) {
+        releaseSnapshots(true);
+        gVisualState.store(SUPER_VISUAL_NORMAL_RESTORED);
+        return true;
+    }
+
+    if (!gSnapshots.empty()) {
+        releaseSnapshots(true);
+    }
+    Il2CppObject* sonic = findSonicGameObject();
+    if (!sonic) {
+        gVisualState.store(SUPER_VISUAL_NO_RENDERERS);
+        return false;
+    }
+    const bool applied = captureAndApplyGold(sonic);
+    gVisualState.store(applied ? SUPER_VISUAL_GOLD_APPLIED : SUPER_VISUAL_NO_RENDERERS);
+    return applied;
 }
 
 int super_visual_state() {
