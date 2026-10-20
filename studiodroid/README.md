@@ -6,4 +6,4 @@ Build branch: `studiodroid-build`.
 
 The APK is built by GitHub Actions.
 
-Status: source staging complete.
+Status: build source prepared.
