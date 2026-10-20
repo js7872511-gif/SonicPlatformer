@@ -25,9 +25,9 @@ jobs:
       - name: Build debug APK
         run: gradle -p studiodroid assembleDebug --stacktrace
       - name: Rename APK
-        run: cp studiodroid/app/build/outputs/apk/debug/app-debug.apk StudioDroid-v0.1-debug.apk
+        run: cp studiodroid/app/build/outputs/apk/debug/app-debug.apk StudioDroid-v0.1.1-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: StudioDroid-v0.1-debug-apk
-          path: StudioDroid-v0.1-debug.apk
+          name: StudioDroid-v0.1.1-debug-apk
+          path: StudioDroid-v0.1.1-debug.apk
           if-no-files-found: error
