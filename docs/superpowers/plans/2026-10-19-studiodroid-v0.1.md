@@ -40,9 +40,9 @@
 **Interfaces:**
 - Produces: `PeValidator.isPeExecutable(header: ByteArray): Boolean`.
 
-- [ ] Write failing tests for valid `MZ`, short input, and wrong signature.
-- [ ] Run unit tests and verify failure before implementation.
-- [ ] Implement `PeValidator.isPeExecutable`.
+- [x] Write failing tests for valid `MZ`, short input, and wrong signature.
+- [x] Run unit tests and verify failure before implementation.
+- [x] Implement `PeValidator.isPeExecutable`.
 - [ ] Run tests and verify pass.
 
 ### Task 2: Workspace import and persistence
@@ -58,9 +58,9 @@
 - Consumes: `PeValidator.isPeExecutable`.
 - Produces: workspace path helpers and `importStudioExe(input: InputStream): Result<File>` plus idempotent helper-file preparation.
 
-- [ ] Write failing tests for successful import, invalid file preservation, replacement, and repeated helper preparation.
-- [ ] Run tests and verify failure.
-- [ ] Implement atomic workspace import and helper extraction.
+- [x] Write failing tests for successful import, invalid file preservation, replacement, and repeated helper preparation.
+- [x] Run tests and verify failure.
+- [x] Implement atomic workspace import and helper extraction.
 - [ ] Run tests and verify pass.
 
 ### Task 3: Windows-layer detection and mobile UI
@@ -78,9 +78,9 @@
 - Produces: detection of known Winlator-compatible package names and launch intent selection.
 - UI actions: Import Studio EXE, Install Studio, Launch Studio, Repair, Open Files, Open Windows Layer.
 
-- [ ] Write failing detector tests for supported, missing, and fallback package states.
-- [ ] Run tests and verify failure.
-- [ ] Implement detector and MainActivity state flow.
+- [x] Write failing detector tests for supported, missing, and fallback package states.
+- [x] Run tests and verify failure.
+- [x] Implement detector and MainActivity state flow.
 - [ ] Run unit tests and verify pass.
 
 ### Task 4: APK build workflow and verification
@@ -92,7 +92,7 @@
 **Interfaces:**
 - Produces: GitHub Actions artifact `StudioDroid-v0.1-debug.apk` and build logs.
 
-- [ ] Configure workflow on pushes to `studiodroid-build` with Java 17, Android/Gradle build, unit tests, and artifact upload.
+- [x] Configure workflow on pushes to `studiodroid-build` with Java 17, Android/Gradle build, unit tests, and artifact upload.
 - [ ] Run workflow and verify unit tests pass.
 - [ ] Verify generated APK exists and can be downloaded as an artifact.
 - [ ] Record build SHA and artifact name in README.
