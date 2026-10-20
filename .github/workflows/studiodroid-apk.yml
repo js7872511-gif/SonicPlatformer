@@ -1,0 +1,33 @@
+name: Build StudioDroid APK
+
+on:
+  push:
+    branches: [ studiodroid-build ]
+    paths:
+      - 'studiodroid/**'
+      - '.github/workflows/studiodroid-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Run tests
+        run: gradle -p studiodroid testDebugUnitTest --stacktrace
+      - name: Build debug APK
+        run: gradle -p studiodroid assembleDebug --stacktrace
+      - name: Rename APK
+        run: cp studiodroid/app/build/outputs/apk/debug/app-debug.apk StudioDroid-v0.1-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StudioDroid-v0.1-debug-apk
+          path: StudioDroid-v0.1-debug.apk
+          if-no-files-found: error
