@@ -1,0 +1,66 @@
+name: Build EXE to APK Prototype
+
+on:
+  push:
+    branches: [ exe-apk-test ]
+    paths:
+      - 'tools/exe-apk-test/**'
+      - '.github/workflows/exe-apk-test.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android toolchains
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;24.0.8215888' 'cmake;3.22.1'
+
+      - name: Clone Winlator runtime source
+        run: git clone --depth 1 https://github.com/brunodev85/winlator-app.git winlator-src
+
+      - name: Fetch the Roblox Studio installer used for the test
+        run: |
+          curl -fL --retry 3 -A 'Mozilla/5.0' \
+            -o winlator-src/app/src/main/assets/RobloxStudioInstaller.exe \
+            https://setup.rbxcdn.com/RobloxStudioInstaller.exe
+          ACTUAL="$(sha256sum winlator-src/app/src/main/assets/RobloxStudioInstaller.exe | awk '{print $1}')"
+          EXPECTED='8b27af84f33c8601dc7cde7433c2577e04063b6a409dd1433676e02984f50af6'
+          echo "Downloaded installer SHA-256: $ACTUAL"
+          echo "Uploaded installer SHA-256:   $EXPECTED"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo '::error::The official installer changed, so this would not be a byte-for-byte conversion of the uploaded EXE.'
+            exit 1
+          fi
+
+      - name: Patch runtime into one-app EXE wrapper
+        run: python3 tools/exe-apk-test/patch_winlator.py
+
+      - name: Build prototype APK
+        working-directory: winlator-src
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Collect APK
+        run: |
+          cp winlator-src/app/build/outputs/apk/debug/app-debug.apk RobloxStudioInstaller-EXE-to-APK-Test.apk
+          sha256sum RobloxStudioInstaller-EXE-to-APK-Test.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RobloxStudioInstaller-EXE-to-APK-Test
+          path: RobloxStudioInstaller-EXE-to-APK-Test.apk
+          if-no-files-found: error
