@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path('winlator-src')
 
+# EXE→APK prototype build trigger 1
 # Give the prototype its own Android package so it can install beside Winlator.
 build_gradle = ROOT / 'app/build.gradle'
 s = build_gradle.read_text()
@@ -45,8 +46,6 @@ public final class AutoLauncher {
     public static void startWhenReady(final MainActivity activity) {
         if (STARTED.get()) return;
         Executors.newSingleThreadExecutor().execute(() -> {
-            // First Winlator launch extracts the bundled Linux/Wine rootfs.
-            // Poll for it instead of racing the installer thread.
             for (int i = 0; i < 300 && !STARTED.get(); i++) {
                 try {
                     RootFS rootFS = RootFS.find(activity);
@@ -128,7 +127,6 @@ public final class AutoLauncher {
 }
 ''')
 
-# Start the helper after rootfs installation is initiated. It polls until ready.
 main = ROOT / 'app/src/main/java/com/winlator/MainActivity.java'
 s = main.read_text()
 old = 'if (!requestAppPermissions()) RootFSInstaller.installIfNeeded(this);'
