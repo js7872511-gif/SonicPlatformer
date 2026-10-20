@@ -2,13 +2,28 @@ from pathlib import Path
 
 ROOT = Path('winlator-src')
 
-# EXE→APK prototype build trigger 1
-# Give the prototype its own Android package so it can install beside Winlator.
+# Give the prototype a fresh Android package so it can install beside Winlator
+# and beside the first EXE→APK test build.
 build_gradle = ROOT / 'app/build.gradle'
 s = build_gradle.read_text()
-s = s.replace("applicationId 'com.winlator'", "applicationId 'com.exetoapk.robloxstudiotest'")
-s = s.replace('versionName "11.2"', 'versionName "EXE-APK-Test-0.1"')
+s = s.replace("applicationId 'com.winlator'", "applicationId 'com.exetoapk.robloxstudiotest2'")
+s = s.replace('versionName "11.2"', 'versionName "EXE-APK-Test-0.2"')
 build_gradle.write_text(s)
+
+# Winlator hard-codes its FileProvider authority. Android requires provider
+# authorities to be unique across installed apps, so using Winlator's original
+# authority causes INSTALL_FAILED_CONFLICTING_PROVIDER when normal Winlator is
+# already installed. Give this wrapper its own authority everywhere.
+provider_authority = 'com.exetoapk.robloxstudiotest2.FileProvider'
+manifest = ROOT / 'app/src/main/AndroidManifest.xml'
+s = manifest.read_text()
+s = s.replace('android:authorities="com.winlator.FileProvider"', f'android:authorities="{provider_authority}"')
+manifest.write_text(s)
+
+file_utils = ROOT / 'app/src/main/java/com/winlator/core/FileUtils.java'
+s = file_utils.read_text()
+s = s.replace('"com.winlator.FileProvider"', f'"{provider_authority}"')
+file_utils.write_text(s)
 
 # Rename the visible app without touching the Java namespace.
 strings = ROOT / 'app/src/main/res/values/strings.xml'
@@ -150,4 +165,4 @@ if old2 not in s:
 s = s.replace(old2, new2, 1)
 main.write_text(s)
 
-print('Patched Winlator source for EXE→APK prototype')
+print('Patched Winlator source for EXE→APK prototype v0.2')
