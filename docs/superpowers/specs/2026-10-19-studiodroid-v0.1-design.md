@@ -19,7 +19,7 @@ StudioDroid v0.1 is intentionally a small Android front-end rather than an all-i
 A single-activity Kotlin app with a simple native UI. It owns file import, local state, status reporting, and handoff to the Windows compatibility layer.
 
 ### Storage
-App-private storage is the source of truth. Imported files are copied into a StudioDroid workspace, with metadata stored in SharedPreferences. When a Winlator-compatible shared folder is available, StudioDroid copies the launcher/support files there as well.
+App-private storage is the source of truth. Imported files are copied into a StudioDroid workspace, with metadata stored in SharedPreferences. StudioDroid mirrors the launcher/support files to `Downloads/StudioDroid` so the Windows layer can reach them.
 
 ### Windows Layer Handoff
 StudioDroid does not embed Wine/Box64 in v0.1. It detects supported package names, prioritizing Winlator-compatible installs, and launches the selected app using an Android intent. If none is installed, StudioDroid shows a clear setup message instead of failing silently.
@@ -68,7 +68,6 @@ The app must remain usable on a phone without a hardware keyboard or mouse.
 - Build debug and release APKs in GitHub Actions.
 - Verify installability on Android 12+.
 - Unit-test PE header validation and workspace state logic.
-- Instrumentation-test the import flow with a mock document provider.
 - Manually verify missing-layer, missing-file, and happy-path handoff states.
 
 ## v0.1 Non-Goals
