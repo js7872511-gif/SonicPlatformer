@@ -5,3 +5,5 @@ StudioDroid is a phone-first Android launcher that prepares the official Roblox 
 Build branch: `studiodroid-build`.
 
 The APK is built by GitHub Actions.
+
+Status: source staging.
