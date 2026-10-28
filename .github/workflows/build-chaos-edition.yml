@@ -1,4 +1,4 @@
-name: Build Sonic 3 A.I.R. Chaos Edition Native
+name: Build Sonic 3 A.I.R. Chaos Edition APK
 
 on:
   push:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-native:
+  build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout Chaos Edition patch
         uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android platform, CMake and exact NDK
+      - name: Install Android platform, build tools, CMake and exact NDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'cmake;3.22.1' 'ndk;29.0.14206865'
@@ -34,41 +34,72 @@ jobs:
         run: |
           git clone --depth 1 --branch v26.03.28.0-stable https://github.com/Eukaryot/sonic3air.git sonic3air-upstream
 
+      - name: Download matching official Android APK for game assets
+        run: |
+          curl -L --fail --retry 3 \
+            -o official-sonic3air.apk \
+            https://github.com/Eukaryot/sonic3air/releases/download/v26.03.28.0-stable/sonic3air_game.apk
+          echo '915fbf525efadfff06ed27923f8aead490ff29723b87445fbf172e1a4b476838  official-sonic3air.apk' | sha256sum -c -
+
+      - name: Copy official game assets into Android source tree
+        run: |
+          rm -rf extracted-apk
+          mkdir extracted-apk
+          unzip -q official-sonic3air.apk 'assets/*' -d extracted-apk
+          mkdir -p sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets
+          cp -a extracted-apk/assets/. sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets/
+
       - name: Apply Chaos Edition touch patch
         run: |
           python3 chaos-edition/patch_touch_controls.py sonic3air-upstream
           grep -n 'Chaos Edition custom touch hitboxes' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
 
-      - name: Limit build to arm64-v8a
+      - name: Configure separate Chaos Edition app identity
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build.gradle')
           s = p.read_text()
+          s = s.replace('versionName "26.03.28.0"', 'versionName "26.03.28.0-chaos1"')
           s = s.replace("abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'", "abiFilters 'arm64-v8a'")
+          marker = 'defaultConfig {\n'
+          if 'applicationId "com.chaosed.sonic3air"' not in s:
+              s = s.replace(marker, marker + '        applicationId "com.chaosed.sonic3air"\n', 1)
           p.write_text(s)
           PY
+          grep -RIl 'Sonic 3 A.I.R.' sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/res | xargs -r sed -i 's/Sonic 3 A.I.R./S3AIR Chaos Edition/g'
 
-      - name: Build patched native library
+      - name: Build unsigned release APK
         working-directory: sonic3air-upstream/Oxygen/sonic3air/build/_android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/29.0.14206865
         run: |
           chmod +x gradlew
-          ./gradlew :app:externalNativeBuildRelease --no-daemon --stacktrace
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Collect libmain.so
+      - name: Align and sign Chaos Edition APK
         run: |
-          mkdir -p chaos-native/arm64-v8a
-          LIB=$(find sonic3air-upstream/Oxygen/sonic3air/build/_android/app -type f -path '*arm64-v8a/libmain.so' | head -1)
-          test -n "$LIB"
-          cp "$LIB" chaos-native/arm64-v8a/libmain.so
-          file chaos-native/arm64-v8a/libmain.so
-          sha256sum chaos-native/arm64-v8a/libmain.so > chaos-native/SHA256SUMS.txt
+          UNSIGNED=$(find sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          test -n "$UNSIGNED"
+          keytool -genkeypair -v \
+            -keystore chaos-edition.keystore \
+            -storepass chaosair -keypass chaosair \
+            -alias chaos-edition -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Chaos Edition, O=Private Build, C=US'
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -p -f 4 "$UNSIGNED" S3AIR_Chaos_Edition_v0.1.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign \
+            --ks chaos-edition.keystore \
+            --ks-key-alias chaos-edition \
+            --ks-pass pass:chaosair --key-pass pass:chaosair \
+            S3AIR_Chaos_Edition_v0.1.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs S3AIR_Chaos_Edition_v0.1.apk
+          sha256sum S3AIR_Chaos_Edition_v0.1.apk > S3AIR_Chaos_Edition_v0.1.apk.sha256
 
-      - name: Upload patched native library
+      - name: Upload Chaos Edition APK
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-edition-native-arm64
-          path: chaos-native
+          name: S3AIR-Chaos-Edition-v0.1
+          path: |
+            S3AIR_Chaos_Edition_v0.1.apk
+            S3AIR_Chaos_Edition_v0.1.apk.sha256
           if-no-files-found: error
