@@ -89,19 +89,48 @@ jobs:
           test -x ../../../sonic3air_linux
 
       - name: Regenerate patched scripts.bin
+        id: script_compile
         working-directory: sonic3air-upstream/Oxygen/sonic3air
         run: |
           rm -rf saves
           mkdir -p saves
           STOCK_SHA=$(sha256sum ../../../extracted-apk/assets/data/scripts.bin | awk '{print $1}')
-          xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize
-          test -s saves/scripts.bin
-          PATCHED_SHA=$(sha256sum saves/scripts.bin | awk '{print $1}')
-          echo "stock scripts.bin:   $STOCK_SHA"
-          echo "patched scripts.bin: $PATCHED_SHA"
-          test "$STOCK_SHA" != "$PATCHED_SHA"
-          cp saves/scripts.bin build/_android/app/src/main/assets/data/scripts.bin
-          echo "$PATCHED_SHA" > /tmp/patched_scripts_sha.txt
+          set +e
+          xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize 2>&1 | tee ../../../lemon-compiler.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "compiler_status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "LemonScript compiler exit status: $STATUS" | tee -a ../../../lemon-compiler.log
+          if [ "$STATUS" -eq 0 ] && [ -s saves/scripts.bin ]; then
+            PATCHED_SHA=$(sha256sum saves/scripts.bin | awk '{print $1}')
+            echo "stock scripts.bin:   $STOCK_SHA" | tee -a ../../../lemon-compiler.log
+            echo "patched scripts.bin: $PATCHED_SHA" | tee -a ../../../lemon-compiler.log
+            if [ "$STOCK_SHA" = "$PATCHED_SHA" ]; then
+              echo "ERROR: patched scripts.bin matches stock scripts.bin" | tee -a ../../../lemon-compiler.log
+              echo "compile_ok=0" >> "$GITHUB_OUTPUT"
+            else
+              cp saves/scripts.bin build/_android/app/src/main/assets/data/scripts.bin
+              echo "$PATCHED_SHA" > /tmp/patched_scripts_sha.txt
+              echo "compile_ok=1" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "ERROR: compiler failed or saves/scripts.bin was not generated" | tee -a ../../../lemon-compiler.log
+            echo "compile_ok=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload LemonScript compiler log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-v0.3-lemon-compiler-log
+          path: lemon-compiler.log
+          if-no-files-found: error
+
+      - name: Stop if patched scripts.bin did not compile
+        if: steps.script_compile.outputs.compile_ok != '1'
+        run: |
+          echo 'Patched LemonScript compilation failed; see chaos-v0.3-lemon-compiler-log artifact.'
+          exit 1
 
       - name: Configure separate Chaos Edition v0.3 app identity
         run: |
