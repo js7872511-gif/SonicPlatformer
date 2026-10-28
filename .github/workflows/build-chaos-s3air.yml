@@ -59,24 +59,28 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Collect release libmain.so
+      - name: Collect complete release arm64 native set
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p chaos-out
+          mkdir -p chaos-out/arm64-v8a
           LIB="$(find sonic3air/Oxygen/sonic3air/build/_android/app/build -type f -path '*/arm64-v8a/libmain.so' | grep -i release | head -n 1)"
           if [ -z "$LIB" ]; then
             LIB="$(find sonic3air/Oxygen/sonic3air/build/_android/app/build -type f -path '*/arm64-v8a/libmain.so' | head -n 1)"
           fi
           test -n "$LIB"
-          cp "$LIB" chaos-out/libmain.so
-          file chaos-out/libmain.so
-          ls -lh chaos-out/libmain.so
+          NATIVE_DIR="$(dirname "$LIB")"
+          cp "$NATIVE_DIR"/*.so chaos-out/arm64-v8a/
+          file chaos-out/arm64-v8a/libmain.so
+          ls -lh chaos-out/arm64-v8a/
+          test -f chaos-out/arm64-v8a/librmxbase.so
+          test -f chaos-out/arm64-v8a/librmxmedia.so
+          test -f chaos-out/arm64-v8a/libSDL2.so
 
-      - name: Upload optimized arm64 engine artifact
+      - name: Upload optimized arm64 native set
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-s3air-arm64-libmain-release
-          path: chaos-out/libmain.so
+          name: chaos-s3air-arm64-native-release
+          path: chaos-out/arm64-v8a/*.so
           if-no-files-found: error
           retention-days: 7
