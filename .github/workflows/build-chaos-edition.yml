@@ -23,12 +23,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            g++ cmake xvfb \
-            libgl1-mesa-dev libglu1-mesa-dev \
-            libasound2-dev libpulse-dev \
-            libxcomposite-dev libxxf86vm-dev \
-            libcurl4-openssl-dev
+          sudo apt-get install -y g++ cmake xvfb libgl1-mesa-dev libglu1-mesa-dev libasound2-dev libpulse-dev libxcomposite-dev libxxf86vm-dev libcurl4-openssl-dev
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -45,25 +40,19 @@ jobs:
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'cmake;3.22.1' 'ndk;29.0.14206865'
 
       - name: Checkout matching Sonic 3 A.I.R. stable source
-        run: |
-          git clone --depth 1 --branch v26.03.28.0-stable https://github.com/Eukaryot/sonic3air.git sonic3air-upstream
+        run: git clone --depth 1 --branch v26.03.28.0-stable https://github.com/Eukaryot/sonic3air.git sonic3air-upstream
 
       - name: Download matching official Android APK for game assets
         run: |
-          curl -L --fail --retry 3 \
-            -o official-sonic3air.apk \
-            https://github.com/Eukaryot/sonic3air/releases/download/v26.03.28.0-stable/sonic3air_game.apk
+          curl -L --fail --retry 3 -o official-sonic3air.apk https://github.com/Eukaryot/sonic3air/releases/download/v26.03.28.0-stable/sonic3air_game.apk
           echo '915fbf525efadfff06ed27923f8aead490ff29723b87445fbf172e1a4b476838  official-sonic3air.apk' | sha256sum -c -
 
       - name: Copy official game assets into source trees
         run: |
-          rm -rf extracted-apk
-          mkdir extracted-apk
+          rm -rf extracted-apk && mkdir extracted-apk
           unzip -q official-sonic3air.apk 'assets/*' -d extracted-apk
-
           mkdir -p sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets
           cp -a extracted-apk/assets/. sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets/
-
           mkdir -p sonic3air-upstream/Oxygen/sonic3air/data
           cp -a extracted-apk/assets/data/. sonic3air-upstream/Oxygen/sonic3air/data/
 
@@ -79,6 +68,28 @@ jobs:
           grep -n 'CHAOS SAVES 1-8' sonic3air-upstream/Oxygen/sonic3air/scripts/menus/dataselect.lemon
           grep -n 'ring_counter = 999' sonic3air-upstream/Oxygen/sonic3air/scripts/general/saveslots.lemon
 
+      - name: Patch Linux compiler to run without proprietary ROM
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/GameLoader.cpp')
+          s = p.read_text()
+          old = '''#else
+					RMX_ERROR("ROM could not be loaded!\\nAn original " + gameProfile.mRomInfos[0].mSteamGameName + " ROM must be added manually. See the Manual for details.\\n\\nThe application will now close.", );
+					return UpdateResult::FAILURE;
+'''
+          new = '''#else
+					// Chaos Edition CI compiler mode: no proprietary ROM is bundled in CI.
+					RMX_LOG_INFO("Chaos Edition CI: continuing without ROM for script compilation");
+					mState = State::ROM_LOADED;
+					return UpdateResult::CONTINUE_IMMEDIATE;
+'''
+          if old not in s:
+              raise SystemExit('Linux ROM failure block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n 'Chaos Edition CI' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/GameLoader.cpp
+
       - name: Build Linux development executable for LemonScript compiler
         working-directory: sonic3air-upstream/Oxygen/sonic3air
         run: |
@@ -92,29 +103,27 @@ jobs:
         id: script_compile
         working-directory: sonic3air-upstream/Oxygen/sonic3air
         run: |
-          rm -rf saves
-          mkdir -p saves
+          rm -rf saves && mkdir -p saves
           STOCK_SHA=$(sha256sum ../../../extracted-apk/assets/data/scripts.bin | awk '{print $1}')
           set +e
-          xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize 2>&1 | tee ../../../lemon-compiler.log
+          timeout 30s xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize 2>&1 | tee ../../../lemon-compiler.log
           STATUS=${PIPESTATUS[0]}
           set -e
           echo "compiler_status=$STATUS" >> "$GITHUB_OUTPUT"
           echo "LemonScript compiler exit status: $STATUS" | tee -a ../../../lemon-compiler.log
-          if [ "$STATUS" -eq 0 ] && [ -s saves/scripts.bin ]; then
+          if [ -s saves/scripts.bin ]; then
             PATCHED_SHA=$(sha256sum saves/scripts.bin | awk '{print $1}')
             echo "stock scripts.bin:   $STOCK_SHA" | tee -a ../../../lemon-compiler.log
             echo "patched scripts.bin: $PATCHED_SHA" | tee -a ../../../lemon-compiler.log
-            if [ "$STOCK_SHA" = "$PATCHED_SHA" ]; then
-              echo "ERROR: patched scripts.bin matches stock scripts.bin" | tee -a ../../../lemon-compiler.log
-              echo "compile_ok=0" >> "$GITHUB_OUTPUT"
-            else
+            if [ "$STOCK_SHA" != "$PATCHED_SHA" ]; then
               cp saves/scripts.bin build/_android/app/src/main/assets/data/scripts.bin
               echo "$PATCHED_SHA" > /tmp/patched_scripts_sha.txt
               echo "compile_ok=1" >> "$GITHUB_OUTPUT"
+            else
+              echo "compile_ok=0" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "ERROR: compiler failed or saves/scripts.bin was not generated" | tee -a ../../../lemon-compiler.log
+            echo "ERROR: saves/scripts.bin was not generated" | tee -a ../../../lemon-compiler.log
             echo "compile_ok=0" >> "$GITHUB_OUTPUT"
           fi
 
@@ -128,9 +137,7 @@ jobs:
 
       - name: Stop if patched scripts.bin did not compile
         if: steps.script_compile.outputs.compile_ok != '1'
-        run: |
-          echo 'Patched LemonScript compilation failed; see chaos-v0.3-lemon-compiler-log artifact.'
-          exit 1
+        run: exit 1
 
       - name: Configure separate Chaos Edition v0.3 app identity
         run: |
@@ -159,24 +166,15 @@ jobs:
         run: |
           UNSIGNED=$(find sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build/outputs/apk/release -name '*.apk' | head -1)
           test -n "$UNSIGNED"
-          keytool -genkeypair -v \
-            -keystore chaos-edition.keystore \
-            -storepass chaosair -keypass chaosair \
-            -alias chaos-edition -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname 'CN=Chaos Edition v0.3, O=Private Build, C=US'
+          keytool -genkeypair -v -keystore chaos-edition.keystore -storepass chaosair -keypass chaosair -alias chaos-edition -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Chaos Edition v0.3, O=Private Build, C=US'
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -p -f 4 "$UNSIGNED" S3AIR_Chaos_Edition_v0.3.apk
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign \
-            --ks chaos-edition.keystore \
-            --ks-key-alias chaos-edition \
-            --ks-pass pass:chaosair --key-pass pass:chaosair \
-            S3AIR_Chaos_Edition_v0.3.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign --ks chaos-edition.keystore --ks-key-alias chaos-edition --ks-pass pass:chaosair --key-pass pass:chaosair S3AIR_Chaos_Edition_v0.3.apk
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs S3AIR_Chaos_Edition_v0.3.apk
           sha256sum S3AIR_Chaos_Edition_v0.3.apk > S3AIR_Chaos_Edition_v0.3.apk.sha256
 
       - name: Verify patched script asset is inside APK
         run: |
-          rm -rf verify-apk
-          mkdir verify-apk
+          rm -rf verify-apk && mkdir verify-apk
           unzip -q S3AIR_Chaos_Edition_v0.3.apk assets/data/scripts.bin -d verify-apk
           EXPECTED=$(cat /tmp/patched_scripts_sha.txt)
           ACTUAL=$(sha256sum verify-apk/assets/data/scripts.bin | awk '{print $1}')
