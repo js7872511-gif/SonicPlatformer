@@ -15,28 +15,32 @@ text = text.replace(anchor, insert, 1)
 anchor2 = '\tbuildRectangularButton(mSetup.mStartButtonCenter, Vec2f(0.18f, 0.06f), "touch_overlay_start", &controller.Start, ConfigMode::State::MOVING_START);\n'
 custom = r'''
 	// -----------------------------------------------------------------
-	// Chaos Edition custom touch hitboxes.
+	// Chaos Edition custom touch hitboxes -- comfortable layout v0.2.
 	// These use secondary virtual controllers so they do not consume
 	// A/B/X/Y/L/R/Start on player 1. Visuals are drawn by LemonScript.
 	// -----------------------------------------------------------------
-	const float chaosRadius = 0.115f;
+	const float emeraldRadius = 0.10f;
 
-	// Seven Chaos Emerald buttons -- always present along the lower center.
-	buildPointButton(Vec2f(-0.66f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.A,     nullptr); // red
-	buildPointButton(Vec2f(-0.44f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.B,     nullptr); // blue
-	buildPointButton(Vec2f(-0.22f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.X,     nullptr); // green
-	buildPointButton(Vec2f(+0.00f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.Y,     nullptr); // yellow
-	buildPointButton(Vec2f(+0.22f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.L,     nullptr); // purple
-	buildPointButton(Vec2f(+0.44f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.R,     nullptr); // cyan
-	buildPointButton(Vec2f(+0.66f, +0.78f), chaosRadius, 3.0f, chaosEmeralds.Start, nullptr); // white
+	// Seven Chaos Emerald buttons in a compact 4+3 grid in the empty
+	// bottom-center gap between the stock D-pad and face buttons.
+	buildPointButton(Vec2f(-0.35f, +0.65f), emeraldRadius, 3.0f, chaosEmeralds.A,     nullptr); // red
+	buildPointButton(Vec2f(-0.12f, +0.65f), emeraldRadius, 3.0f, chaosEmeralds.B,     nullptr); // blue
+	buildPointButton(Vec2f(+0.12f, +0.65f), emeraldRadius, 3.0f, chaosEmeralds.X,     nullptr); // green
+	buildPointButton(Vec2f(+0.35f, +0.65f), emeraldRadius, 3.0f, chaosEmeralds.Y,     nullptr); // yellow
+	buildPointButton(Vec2f(-0.23f, +0.86f), emeraldRadius, 3.0f, chaosEmeralds.L,     nullptr); // purple
+	buildPointButton(Vec2f(+0.00f, +0.86f), emeraldRadius, 3.0f, chaosEmeralds.R,     nullptr); // cyan
+	buildPointButton(Vec2f(+0.23f, +0.86f), emeraldRadius, 3.0f, chaosEmeralds.Start, nullptr); // white
 
-	// Form buttons. LemonScript decides which actions are valid/visible.
-	buildPointButton(Vec2f(+1.20f, -0.48f), 0.14f, 3.2f, chaosForms.A, nullptr); // SUPER
-	buildPointButton(Vec2f(+1.52f, -0.48f), 0.14f, 3.2f, chaosForms.B, nullptr); // WATER
-	buildPointButton(Vec2f(+0.88f, -0.12f), 0.12f, 3.1f, chaosForms.X, nullptr); // SLIP
-	buildPointButton(Vec2f(+1.12f, -0.12f), 0.12f, 3.1f, chaosForms.Y, nullptr); // SUPER RUSH
-	buildPointButton(Vec2f(+1.36f, -0.12f), 0.12f, 3.1f, chaosForms.L, nullptr); // SKY BURST
-	buildPointButton(Vec2f(+1.60f, -0.12f), 0.12f, 3.1f, chaosForms.R, nullptr); // CHAOS BURST
+	// Three context-sensitive thumb slots just above the stock face buttons.
+	// Slot 1: SUPER while normal, SLIP while Water, RUSH while Super.
+	buildPointButton(Vec2f(+0.65f, -0.17f), 0.13f, 3.2f, chaosForms.A, &chaosForms.X);
+	mTouchAreas.back().mControls.push_back(&chaosForms.Y);
+
+	// Slot 2: WATER while normal/Water, SKY while Super.
+	buildPointButton(Vec2f(+1.08f, -0.17f), 0.13f, 3.2f, chaosForms.B, &chaosForms.L);
+
+	// Slot 3: CHAOS while Super.
+	buildPointButton(Vec2f(+1.52f, -0.17f), 0.13f, 3.2f, chaosForms.R, nullptr);
 
 '''
 if anchor2 not in text:
