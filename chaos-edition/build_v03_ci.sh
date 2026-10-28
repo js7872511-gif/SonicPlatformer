@@ -40,6 +40,7 @@ test -x ./sonic3air_linux
 rm -rf saves
 mkdir -p saves
 STOCK_SHA=$(sha256sum ../../../extracted-apk/assets/data/scripts.bin | awk '{print $1}')
+rm -f data/scripts.bin
 set +e
 timeout 30s xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize 2>&1 | tee ../../../lemon-compiler.log
 STATUS=${PIPESTATUS[0]}
