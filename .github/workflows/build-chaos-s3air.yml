@@ -51,29 +51,32 @@ jobs:
             sonic3air/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp \
             sonic3air/Oxygen/oxygenengine/source/oxygen/application/input/ControlsIn.cpp
 
-      - name: Build arm64 native engine
+      - name: Build optimized arm64 native engine
         shell: bash
         run: |
           set -euxo pipefail
           cd sonic3air/Oxygen/sonic3air/build/_android
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Collect libmain.so
+      - name: Collect release libmain.so
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p chaos-out
-          LIB="$(find sonic3air/Oxygen/sonic3air/build/_android/app/build -type f -path '*/arm64-v8a/libmain.so' | head -n 1)"
+          LIB="$(find sonic3air/Oxygen/sonic3air/build/_android/app/build -type f -path '*/arm64-v8a/libmain.so' | grep -i release | head -n 1)"
+          if [ -z "$LIB" ]; then
+            LIB="$(find sonic3air/Oxygen/sonic3air/build/_android/app/build -type f -path '*/arm64-v8a/libmain.so' | head -n 1)"
+          fi
           test -n "$LIB"
           cp "$LIB" chaos-out/libmain.so
           file chaos-out/libmain.so
           ls -lh chaos-out/libmain.so
 
-      - name: Upload arm64 engine artifact
+      - name: Upload optimized arm64 engine artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-s3air-arm64-libmain
+          name: chaos-s3air-arm64-libmain-release
           path: chaos-out/libmain.so
           if-no-files-found: error
           retention-days: 7
