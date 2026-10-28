@@ -33,13 +33,14 @@ jobs:
             'ndk;29.0.14206865' \
             'cmake;3.22.1'
 
-      - name: Fetch matching Sonic 3 AIR source
+      - name: Fetch exact Sonic 3 AIR 26.03.28 stable source
         shell: bash
         run: |
           set -euxo pipefail
           git clone https://github.com/Eukaryot/sonic3air.git sonic3air
           cd sonic3air
-          git checkout b0063dfb4b3e69d710e131ab83507cdf8c41910f
+          git checkout 29cf83c
+          git rev-parse HEAD
 
       - name: Apply Chaos Edition touch patch
         shell: bash
@@ -59,7 +60,7 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Collect complete release arm64 native set
+      - name: Collect exact-stable release arm64 native set
         shell: bash
         run: |
           set -euxo pipefail
@@ -77,10 +78,10 @@ jobs:
           test -f chaos-out/arm64-v8a/librmxmedia.so
           test -f chaos-out/arm64-v8a/libSDL2.so
 
-      - name: Upload optimized arm64 native set
+      - name: Upload exact-stable optimized arm64 native set
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-s3air-arm64-native-release
+          name: chaos-s3air-260328-arm64-native-release
           path: chaos-out/arm64-v8a/*.so
           if-no-files-found: error
           retention-days: 7
