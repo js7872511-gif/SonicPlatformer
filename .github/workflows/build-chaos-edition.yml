@@ -52,22 +52,22 @@ jobs:
       - name: Apply Chaos Edition touch patch
         run: |
           python3 chaos-edition/patch_touch_controls.py sonic3air-upstream
-          grep -n 'Chaos Edition custom touch hitboxes' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
+          grep -n 'comfortable layout v0.2' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
 
-      - name: Configure separate Chaos Edition app identity
+      - name: Configure separate Chaos Edition v0.2 app identity
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build.gradle')
           s = p.read_text()
-          s = s.replace('versionName "26.03.28.0"', 'versionName "26.03.28.0-chaos1"')
+          s = s.replace('versionName "26.03.28.0"', 'versionName "26.03.28.0-chaos2"')
           s = s.replace("abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'", "abiFilters 'arm64-v8a'")
           marker = 'defaultConfig {\n'
-          if 'applicationId "com.chaosed.sonic3air"' not in s:
-              s = s.replace(marker, marker + '        applicationId "com.chaosed.sonic3air"\n', 1)
+          if 'applicationId "com.chaosed.sonic3air.v2"' not in s:
+              s = s.replace(marker, marker + '        applicationId "com.chaosed.sonic3air.v2"\n', 1)
           p.write_text(s)
           PY
-          grep -RIl 'Sonic 3 A.I.R.' sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/res | xargs -r sed -i 's/Sonic 3 A.I.R./S3AIR Chaos Edition/g'
+          grep -RIl 'Sonic 3 A.I.R.' sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/res | xargs -r sed -i 's/Sonic 3 A.I.R./S3AIR Chaos Edition v0.2/g'
 
       - name: Build unsigned release APK
         working-directory: sonic3air-upstream/Oxygen/sonic3air/build/_android
@@ -85,21 +85,21 @@ jobs:
             -keystore chaos-edition.keystore \
             -storepass chaosair -keypass chaosair \
             -alias chaos-edition -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname 'CN=Chaos Edition, O=Private Build, C=US'
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -p -f 4 "$UNSIGNED" S3AIR_Chaos_Edition_v0.1.apk
+            -dname 'CN=Chaos Edition v0.2, O=Private Build, C=US'
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -p -f 4 "$UNSIGNED" S3AIR_Chaos_Edition_v0.2.apk
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign \
             --ks chaos-edition.keystore \
             --ks-key-alias chaos-edition \
             --ks-pass pass:chaosair --key-pass pass:chaosair \
-            S3AIR_Chaos_Edition_v0.1.apk
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs S3AIR_Chaos_Edition_v0.1.apk
-          sha256sum S3AIR_Chaos_Edition_v0.1.apk > S3AIR_Chaos_Edition_v0.1.apk.sha256
+            S3AIR_Chaos_Edition_v0.2.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs S3AIR_Chaos_Edition_v0.2.apk
+          sha256sum S3AIR_Chaos_Edition_v0.2.apk > S3AIR_Chaos_Edition_v0.2.apk.sha256
 
       - name: Upload Chaos Edition APK
         uses: actions/upload-artifact@v4
         with:
-          name: S3AIR-Chaos-Edition-v0.1
+          name: S3AIR-Chaos-Edition-v0.2
           path: |
-            S3AIR_Chaos_Edition_v0.1.apk
-            S3AIR_Chaos_Edition_v0.1.apk.sha256
+            S3AIR_Chaos_Edition_v0.2.apk
+            S3AIR_Chaos_Edition_v0.2.apk.sha256
           if-no-files-found: error
