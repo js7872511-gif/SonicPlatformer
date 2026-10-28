@@ -1,0 +1,74 @@
+name: Build Sonic 3 A.I.R. Chaos Edition Native
+
+on:
+  push:
+    branches: [chaos-edition-build]
+    paths:
+      - 'chaos-edition/**'
+      - '.github/workflows/build-chaos-edition.yml'
+  workflow_dispatch:
+
+jobs:
+  build-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Chaos Edition patch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android platform, CMake and exact NDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'cmake;3.22.1' 'ndk;29.0.14206865'
+
+      - name: Checkout matching Sonic 3 A.I.R. stable source
+        run: |
+          git clone --depth 1 --branch v26.03.28.0-stable https://github.com/Eukaryot/sonic3air.git sonic3air-upstream
+
+      - name: Apply Chaos Edition touch patch
+        run: |
+          python3 chaos-edition/patch_touch_controls.py sonic3air-upstream
+          grep -n 'Chaos Edition custom touch hitboxes' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
+
+      - name: Limit build to arm64-v8a
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build.gradle')
+          s = p.read_text()
+          s = s.replace("abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'", "abiFilters 'arm64-v8a'")
+          p.write_text(s)
+          PY
+
+      - name: Build patched native library
+        working-directory: sonic3air-upstream/Oxygen/sonic3air/build/_android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/29.0.14206865
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:externalNativeBuildRelease --no-daemon --stacktrace
+
+      - name: Collect libmain.so
+        run: |
+          mkdir -p chaos-native/arm64-v8a
+          LIB=$(find sonic3air-upstream/Oxygen/sonic3air/build/_android/app -type f -path '*arm64-v8a/libmain.so' | head -1)
+          test -n "$LIB"
+          cp "$LIB" chaos-native/arm64-v8a/libmain.so
+          file chaos-native/arm64-v8a/libmain.so
+          sha256sum chaos-native/arm64-v8a/libmain.so > chaos-native/SHA256SUMS.txt
+
+      - name: Upload patched native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-edition-native-arm64
+          path: chaos-native
+          if-no-files-found: error
