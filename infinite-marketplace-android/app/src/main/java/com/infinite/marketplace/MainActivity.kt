@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         else webView.restoreState(savedInstanceState)
     }
 
-    private inner class FileBridge {
+    inner class FileBridge {
         @JavascriptInterface
         fun saveFile(filename: String, base64Data: String, mimeType: String) {
             try {
