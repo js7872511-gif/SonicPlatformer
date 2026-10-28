@@ -27,7 +27,7 @@ python3 chaos-edition/patch_ci_rom_bypass.py sonic3air-upstream
 
 grep -n 'comfortable layout v0.2' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
 grep -n 'global u8 chaos.save_bank' sonic3air-upstream/Oxygen/sonic3air/scripts/general/saveslots.lemon
-grep -n 'Chaos Edition CI' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/GameLoader.cpp
+grep -n 'Chaos Edition CI' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/resources/ResourcesCache.cpp
 
 pushd sonic3air-upstream/Oxygen/sonic3air
 mkdir -p build/_cmake/build
