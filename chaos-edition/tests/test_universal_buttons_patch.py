@@ -74,8 +74,13 @@ void TouchControlsOverlay::buildTouchControls()
 void TouchControlsOverlay::buildPointButton(const Vec2f& center, float radius, float priority, InputManager::Control& control, InputManager::Control* control2)
 {"""
         out = patch_cpp_text(src)
-        self.assertIn("controllerIndex > 3", out)
+        self.assertIn("controllerIndex > 2", out)
         self.assertIn("accessController(controllerIndex)", out)
+        self.assertIn("accessController(3)", out)
+        self.assertIn("&chaosCore.A", out)
+        self.assertIn("&chaosCore.B", out)
+        self.assertIn("&chaosCore.X", out)
+        self.assertIn("&chaosCore.Y", out)
         for name in ["A","B","X","Y","L","R","Start","Up","Down","Left","Right"]:
             self.assertIn(f'controlName == "{name}"', out)
 
