@@ -9,7 +9,8 @@ HEADER_INSERT = (
     + "\tInputManager::Control* resolveChaosModControl(uint32 controllerIndex, const std::string& controlName);\n"
 )
 
-CPP_INCLUDE_ANCHOR = '#include "oxygen/engine/EngineMain.h"\n'
+# Stable v26.03.28.0 includes Application's EngineMain from this path.
+CPP_INCLUDE_ANCHOR = '#include "oxygen/application/EngineMain.h"\n'
 CPP_INCLUDE_INSERT = (
     CPP_INCLUDE_ANCHOR
     + '#include "oxygen/engine/modding/ModManager.h"\n'
@@ -99,12 +100,15 @@ void TouchControlsOverlay::buildChaosModButtons()
 			if (nullptr == control)
 				continue;
 
-			float x = button["X"].isNumeric() ? button["X"].asFloat() : (0.55f + 0.26f * (float)(totalButtons % 4));
-			float y = button["Y"].isNumeric() ? button["Y"].asFloat() : (-0.20f + 0.26f * (float)(totalButtons / 4));
-			float size = button["Size"].isNumeric() ? button["Size"].asFloat() : 0.13f;
-			x = std::clamp(x, -1.65f, 1.65f);
-			y = std::clamp(y, -0.95f, 0.95f);
-			size = std::clamp(size, 0.06f, 0.25f);
+			const bool xNumeric = button["X"].isDouble() || button["X"].isInt() || button["X"].isUInt();
+			const bool yNumeric = button["Y"].isDouble() || button["Y"].isInt() || button["Y"].isUInt();
+			const bool sizeNumeric = button["Size"].isDouble() || button["Size"].isInt() || button["Size"].isUInt();
+			float x = xNumeric ? button["X"].asFloat() : (0.55f + 0.26f * (float)(totalButtons % 4));
+			float y = yNumeric ? button["Y"].asFloat() : (-0.20f + 0.26f * (float)(totalButtons / 4));
+			float size = sizeNumeric ? button["Size"].asFloat() : 0.13f;
+			x = clamp(x, -1.65f, 1.65f);
+			y = clamp(y, -0.95f, 0.95f);
+			size = clamp(size, 0.06f, 0.25f);
 
 			std::string spriteKey;
 			if (button["Sprite"].isString())
