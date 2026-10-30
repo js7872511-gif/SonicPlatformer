@@ -26,7 +26,13 @@ CPP_BUILD_REPLACEMENT = (
     '\tbuildRectangularButton(mSetup.mGameRecButtonCenter, Vec2f(0.15f, 0.06f), '
     '"touch_overlay_rec", nullptr, ConfigMode::State::MOVING_GAMEREC, '
     'TouchArea::SpecialType::GAMEREC, 0.1f);\n\n'
-    '\t// Chaos Edition 3.0: optional extra buttons declared by ordinary mods.\n'
+    '\t// Chaos Edition 3.0 core buttons use controller 3; ordinary mods use 0..2.\n'
+    '\tInputManager::ControllerScheme& chaosCore = mInputManager->accessController(3);\n'
+    '\tbuildRectangularButton(Vec2f(-0.42f, -0.68f), Vec2f(0.11f, 0.11f), "touch_overlay_A", &chaosCore.A, ConfigMode::State::TOUCH_UP, TouchArea::SpecialType::NONE, 0.05f);\n'
+    '\tbuildRectangularButton(Vec2f(-0.14f, -0.68f), Vec2f(0.11f, 0.11f), "touch_overlay_B", &chaosCore.B, ConfigMode::State::TOUCH_UP, TouchArea::SpecialType::NONE, 0.05f);\n'
+    '\tbuildRectangularButton(Vec2f( 0.14f, -0.68f), Vec2f(0.11f, 0.11f), "touch_overlay_X", &chaosCore.X, ConfigMode::State::TOUCH_UP, TouchArea::SpecialType::NONE, 0.05f);\n'
+    '\tbuildRectangularButton(Vec2f( 0.42f, -0.68f), Vec2f(0.11f, 0.11f), "touch_overlay_Y", &chaosCore.Y, ConfigMode::State::TOUCH_UP, TouchArea::SpecialType::NONE, 0.05f);\n\n'
+    '\t// Optional extra buttons declared by ordinary mods.\n'
     '\tbuildChaosModButtons();\n\n'
     '\tmLastScreenSize = FTX::screenSize();'
 )
@@ -38,7 +44,7 @@ CPP_METHOD_ANCHOR = (
 
 CPP_METHODS = r'''InputManager::Control* TouchControlsOverlay::resolveChaosModControl(uint32 controllerIndex, const std::string& controlName)
 {
-	if (controllerIndex > 3)
+	if (controllerIndex > 2)
 		return nullptr;
 
 	InputManager::ControllerScheme& controller = mInputManager->accessController(controllerIndex);
@@ -83,7 +89,7 @@ void TouchControlsOverlay::buildChaosModButtons()
 			uint32 controllerIndex = 1;
 			if (button["Controller"].isUInt())
 				controllerIndex = button["Controller"].asUInt();
-			if (controllerIndex > 3)
+			if (controllerIndex > 2)
 				continue;
 
 			std::string controlName = "A";
