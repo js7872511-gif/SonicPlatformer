@@ -13,10 +13,10 @@ private:
         self.assertIn("buildChaosModButtons", out)
         self.assertIn("resolveChaosModControl", out)
 
-    def test_cpp_reads_optional_sidecar_from_all_active_mods(self):
-        src = """#include \"oxygen/application/overlays/TouchControlsOverlay.h\"
+    def stable_cpp_fixture(self):
+        return """#include \"oxygen/application/overlays/TouchControlsOverlay.h\"
 #include \"oxygen/application/Application.h\"
-#include \"oxygen/engine/EngineMain.h\"
+#include \"oxygen/application/EngineMain.h\"
 
 void TouchControlsOverlay::buildTouchControls()
 {
@@ -34,7 +34,11 @@ void TouchControlsOverlay::buildTouchControls()
 
 void TouchControlsOverlay::buildPointButton(const Vec2f& center, float radius, float priority, InputManager::Control& control, InputManager::Control* control2)
 {"""
-        out = patch_cpp_text(src)
+
+    def test_cpp_reads_optional_sidecar_from_all_active_mods(self):
+        out = patch_cpp_text(self.stable_cpp_fixture())
+        self.assertIn('#include "oxygen/application/EngineMain.h"', out)
+        self.assertIn('#include "oxygen/engine/modding/ModManager.h"', out)
         self.assertIn('chaos-buttons.json', out)
         self.assertIn('ModManager::instance().getActiveMods()', out)
         self.assertIn('Controller', out)
@@ -53,27 +57,7 @@ void TouchControlsOverlay::buildPointButton(const Vec2f& center, float radius, f
         self.assertIn("mTouchControlsOverlay->buildTouchControls()", out)
 
     def test_controller_zero_and_secondary_controllers_supported(self):
-        src = """#include \"oxygen/application/overlays/TouchControlsOverlay.h\"
-#include \"oxygen/application/Application.h\"
-#include \"oxygen/engine/EngineMain.h\"
-
-void TouchControlsOverlay::buildTouchControls()
-{
-\tInputManager::ControllerScheme& controller = mInputManager->accessController(0);
-\tConfiguration& config = Configuration::instance();
-
-\tmTouchAreas.clear();
-\tmVisualElements.clear();
-
-\tbuildRectangularButton(mSetup.mStartButtonCenter, Vec2f(0.18f, 0.06f), \"touch_overlay_start\", &controller.Start, ConfigMode::State::MOVING_START);
-\tbuildRectangularButton(mSetup.mGameRecButtonCenter, Vec2f(0.15f, 0.06f), \"touch_overlay_rec\", nullptr, ConfigMode::State::MOVING_GAMEREC, TouchArea::SpecialType::GAMEREC, 0.1f);
-
-\tmLastScreenSize = FTX::screenSize();
-}
-
-void TouchControlsOverlay::buildPointButton(const Vec2f& center, float radius, float priority, InputManager::Control& control, InputManager::Control* control2)
-{"""
-        out = patch_cpp_text(src)
+        out = patch_cpp_text(self.stable_cpp_fixture())
         self.assertIn("controllerIndex > 2", out)
         self.assertIn("accessController(controllerIndex)", out)
         self.assertIn("accessController(3)", out)
