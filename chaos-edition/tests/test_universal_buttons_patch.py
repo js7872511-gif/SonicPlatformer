@@ -38,7 +38,8 @@ void TouchControlsOverlay::buildPointButton(const Vec2f& center, float radius, f
     def test_cpp_reads_optional_sidecar_from_all_active_mods(self):
         out = patch_cpp_text(self.stable_cpp_fixture())
         self.assertIn('#include "oxygen/application/EngineMain.h"', out)
-        self.assertIn('#include "oxygen/engine/modding/ModManager.h"', out)
+        self.assertIn('#include "oxygen/application/modding/ModManager.h"', out)
+        self.assertNotIn('#include "oxygen/engine/modding/ModManager.h"', out)
         self.assertIn('chaos-buttons.json', out)
         self.assertIn('ModManager::instance().getActiveMods()', out)
         self.assertIn('Controller', out)
