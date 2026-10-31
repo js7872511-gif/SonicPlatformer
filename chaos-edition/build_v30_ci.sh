@@ -57,7 +57,11 @@ mkdir -p saves
 STOCK_SHA=$(sha256sum ../../../extracted-apk/assets/data/scripts.bin | awk '{print $1}')
 rm -f data/scripts.bin
 set +e
-timeout 45s xvfb-run -a ./sonic3air_linux -dumpcppdefinitions -nativize 2>&1 | tee ../../../lemon-compiler-v30.log
+# Important: do NOT use -nativize here. Nativization consults EmulatorInterface/ROM
+# contents and is unnecessary for serializing patched LemonScript to saves/scripts.bin.
+# -dumpcppdefinitions forces source loading, makes the application exit after script
+# loading, and ConfigurationImpl's mCompiledScriptSavePath writes saves/scripts.bin.
+timeout 45s xvfb-run -a ./sonic3air_linux -dumpcppdefinitions 2>&1 | tee ../../../lemon-compiler-v30.log
 STATUS=${PIPESTATUS[0]}
 set -e
 echo "compiler exit: $STATUS" | tee -a ../../../lemon-compiler-v30.log
