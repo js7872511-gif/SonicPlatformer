@@ -21,64 +21,92 @@ mkdir -p sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets
 cp -a extracted-apk/assets/. sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets/
 mkdir -p sonic3air-upstream/Oxygen/sonic3air/data
 cp -a extracted-apk/assets/data/. sonic3air-upstream/Oxygen/sonic3air/data/
+STOCK_SHA=$(sha256sum extracted-apk/assets/data/scripts.bin | awk '{print $1}')
 
-# Chaos Edition 3.0 patch order. Do not add the old Water/Emerald patchers here.
+# Keep an untouched source snapshot. Existing script patchers are used only to
+# generate the built-in Chaos Core mod; the APK keeps the official scripts.bin.
+rm -rf /tmp/s3air-stock-scripts-v30
+cp -a sonic3air-upstream/Oxygen/sonic3air/scripts /tmp/s3air-stock-scripts-v30
+
+# Generate the desired Chaos behavior in a temporary patched source tree.
+# Do not add the old Water/Emerald patchers here.
 python3 chaos-edition/patch_save_banks.py sonic3air-upstream
 python3 chaos-edition/patch_savebank_v30_cleanup.py sonic3air-upstream
 python3 chaos-edition/patch_death_berserker.py sonic3air-upstream
 python3 chaos-edition/patch_chaos_hud.py sonic3air-upstream
+
+# Turn every changed/new function into a normal, always-on S3AIR script mod.
+rm -rf sonic3air-upstream/Oxygen/sonic3air/data/chaos_core
+python3 chaos-edition/build_builtin_core.py \
+  /tmp/s3air-stock-scripts-v30 \
+  sonic3air-upstream/Oxygen/sonic3air/scripts \
+  sonic3air-upstream/Oxygen/sonic3air/data/chaos_core
+cp -a sonic3air-upstream/Oxygen/sonic3air/data/chaos_core \
+  sonic3air-upstream/Oxygen/sonic3air/build/_android/app/src/main/assets/data/
+
+# Engine/platform patches: built-in core loader + universal mod buttons.
+python3 chaos-edition/patch_builtin_core.py sonic3air-upstream
 python3 chaos-edition/patch_universal_buttons.py sonic3air-upstream
-python3 chaos-edition/patch_ci_rom_bypass.py sonic3air-upstream
 python3 chaos-edition/patch_android_identity.py sonic3air-upstream
 
-# Source assertions: prove the intended platform is present and rejected old core isn't applied.
-grep -n 'global u8 chaos.save_bank' sonic3air-upstream/Oxygen/sonic3air/scripts/general/saveslots.lemon
-grep -n 'ChaosProgression.updateSonic' sonic3air-upstream/Oxygen/sonic3air/scripts/maingame/character/character.lemon
-grep -n 'chaosLives = 3' sonic3air-upstream/Oxygen/sonic3air/scripts/maingame/hud/hud.lemon
+# The ROM bypass is only for the Linux CI validation executable. Restore the
+# real ResourcesCache before the Android build so the shipped APK keeps normal
+# S3AIR ROM handling.
+cp sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/resources/ResourcesCache.cpp /tmp/ResourcesCache.cpp.v30.stock
+python3 chaos-edition/patch_ci_rom_bypass.py sonic3air-upstream
+
+# Assertions: platform + core are present; rejected legacy ability pack is absent.
+grep -n 'ChaosProgression.updateSonic' sonic3air-upstream/Oxygen/sonic3air/data/chaos_core/scripts/main.lemon
+grep -n 'DataSelect.switchChaosSaveBank' sonic3air-upstream/Oxygen/sonic3air/data/chaos_core/scripts/main.lemon
+grep -n 'chaosLives = 3' sonic3air-upstream/Oxygen/sonic3air/data/chaos_core/scripts/main.lemon
+grep -n 'ChaosProgression.recordDeath' sonic3air-upstream/Oxygen/sonic3air/data/chaos_core/scripts/main.lemon
+grep -n 'chaos-edition-core' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/modding/ModManager.cpp
 grep -n 'chaos-buttons.json' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
 grep -n 'accessController(3)' sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp
 grep -n 'com.chaosed.sonic3air.v30' sonic3air-upstream/Oxygen/sonic3air/build/_android/app/build.gradle
-if grep -R -n -E 'WATER SONIC|HYPER WATER|Emerald power|comfortable layout v0.2' sonic3air-upstream/Oxygen/sonic3air/scripts sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp; then
+if grep -R -n -E 'WATER SONIC|HYPER WATER|Emerald power|comfortable layout v0.2' \
+  sonic3air-upstream/Oxygen/sonic3air/data/chaos_core \
+  sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/application/overlays/TouchControlsOverlay.cpp; then
   echo 'Rejected legacy Chaos ability code leaked into 3.0 build' >&2
   exit 1
 fi
 
-# Build the Linux tool used to compile patched LemonScript.
+# Build a Linux host executable and validate stock scripts.bin + the packaged
+# Chaos Core mod together. We deliberately hide base source main.lemon so the
+# engine loads the official compiled scripts first, then compiles only our mod.
 pushd sonic3air-upstream/Oxygen/sonic3air
 mkdir -p build/_cmake/build
 pushd build/_cmake/build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 cmake --build . -j 4
 popd
-
 test -x ./sonic3air_linux
+
+mv scripts scripts_patched_v30
+mkdir -p scripts/_reference
 rm -rf saves
 mkdir -p saves
-STOCK_SHA=$(sha256sum ../../../extracted-apk/assets/data/scripts.bin | awk '{print $1}')
-rm -f data/scripts.bin
 set +e
-# Important: do NOT use -nativize here. Nativization consults EmulatorInterface/ROM
-# contents and is unnecessary for serializing patched LemonScript to saves/scripts.bin.
-# -dumpcppdefinitions forces source loading, makes the application exit after script
-# loading, and ConfigurationImpl's mCompiledScriptSavePath writes saves/scripts.bin.
 timeout 45s xvfb-run -a ./sonic3air_linux -dumpcppdefinitions 2>&1 | tee ../../../lemon-compiler-v30.log
 STATUS=${PIPESTATUS[0]}
 set -e
-echo "compiler exit: $STATUS" | tee -a ../../../lemon-compiler-v30.log
-if [ ! -s saves/scripts.bin ]; then
-  echo 'patched scripts.bin was not generated' | tee -a ../../../lemon-compiler-v30.log
+echo "host validation exit: $STATUS" | tee -a ../../../lemon-compiler-v30.log
+if [ "$STATUS" -ne 0 ]; then
+  echo 'stock scripts + Chaos Core host validation failed' | tee -a ../../../lemon-compiler-v30.log
   exit 20
 fi
-PATCHED_SHA=$(sha256sum saves/scripts.bin | awk '{print $1}')
-echo "stock:   $STOCK_SHA" | tee -a ../../../lemon-compiler-v30.log
-echo "patched: $PATCHED_SHA" | tee -a ../../../lemon-compiler-v30.log
-if [ "$STOCK_SHA" = "$PATCHED_SHA" ]; then
-  echo 'patched scripts.bin unexpectedly matches stock' | tee -a ../../../lemon-compiler-v30.log
+grep -q 'Loaded built-in Chaos Edition 3.0 Core' ../../../lemon-compiler-v30.log
+if grep -q -E 'Script compile error|Failed to load base scripts|Caught unhandled exception|Segmentation fault' ../../../lemon-compiler-v30.log; then
+  echo 'Chaos Core LemonScript validation reported an error' | tee -a ../../../lemon-compiler-v30.log
   exit 21
 fi
-cp saves/scripts.bin build/_android/app/src/main/assets/data/scripts.bin
-echo "$PATCHED_SHA" > /tmp/patched_scripts_sha_v30.txt
+
+# Prove the base script binary remained the official one.
+test "$(sha256sum data/scripts.bin | awk '{print $1}')" = "$STOCK_SHA"
 popd
+
+# Restore normal ROM handling for the Android APK.
+cp /tmp/ResourcesCache.cpp.v30.stock sonic3air-upstream/Oxygen/oxygenengine/source/oxygen/resources/ResourcesCache.cpp
 
 # Android release build.
 pushd sonic3air-upstream/Oxygen/sonic3air/build/_android
@@ -94,12 +122,18 @@ keytool -genkeypair -v -keystore chaos-edition-v30.keystore -storepass chaosair3
 "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs S3AIR_Chaos_Edition_3.0.apk
 unzip -t S3AIR_Chaos_Edition_3.0.apk
 
+# Package verification: official base scripts + built-in core source must both be present.
 rm -rf verify-apk-v30
 mkdir verify-apk-v30
-unzip -q S3AIR_Chaos_Edition_3.0.apk assets/data/scripts.bin -d verify-apk-v30
-EXPECTED=$(cat /tmp/patched_scripts_sha_v30.txt)
-ACTUAL=$(sha256sum verify-apk-v30/assets/data/scripts.bin | awk '{print $1}')
-test "$EXPECTED" = "$ACTUAL"
+unzip -q S3AIR_Chaos_Edition_3.0.apk \
+  assets/data/scripts.bin \
+  assets/data/chaos_core/mod.json \
+  assets/data/chaos_core/scripts/main.lemon \
+  -d verify-apk-v30
+test "$(sha256sum verify-apk-v30/assets/data/scripts.bin | awk '{print $1}')" = "$STOCK_SHA"
+grep -q '"UniqueID": "chaos-edition-core"' verify-apk-v30/assets/data/chaos_core/mod.json
+grep -q 'ChaosProgression.updateSonic' verify-apk-v30/assets/data/chaos_core/scripts/main.lemon
+grep -q 'DataSelect.switchChaosSaveBank' verify-apk-v30/assets/data/chaos_core/scripts/main.lemon
 sha256sum S3AIR_Chaos_Edition_3.0.apk > S3AIR_Chaos_Edition_3.0.apk.sha256
 
 echo 'CHAOS EDITION 3.0 BUILD VERIFIED'
