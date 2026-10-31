@@ -13,7 +13,7 @@ HEADER_INSERT = (
 CPP_INCLUDE_ANCHOR = '#include "oxygen/application/EngineMain.h"\n'
 CPP_INCLUDE_INSERT = (
     CPP_INCLUDE_ANCHOR
-    + '#include "oxygen/engine/modding/ModManager.h"\n'
+    + '#include "oxygen/application/modding/ModManager.h"\n'
     + '#include "oxygen/helper/JsonHelper.h"\n'
 )
 
